@@ -85,14 +85,14 @@ func createDeploymentConfig(image string) *v1.Deployment {
 	containers = append(containers, container)
 
 	//
-	var toleration corev1.Toleration
-	toleration = createToleration(tolerationValue)
-	tolerations = append(tolerations, toleration)
+	// var toleration corev1.Toleration
+	// toleration = createToleration(tolerationValue)
+	// tolerations = append(tolerations, toleration)
 
 	// Check for given node selector values.
 	// Set the map to the default of nil (<none>) if there are no selectors given.
-	if len(checkDeploymentNodeSelectors) == 0 {
-		checkDeploymentNodeSelectors = nil
+	if len(dpNodeSelectorsEnv) == 0 {
+		dpNodeSelectorsEnv = ""
 	}
 
 	graceSeconds := int64(1)
@@ -100,7 +100,7 @@ func createDeploymentConfig(image string) *v1.Deployment {
 	// Make and define a pod spec with containers.
 	podSpec := corev1.PodSpec{
 		Containers:                    containers,
-		NodeSelector:                  checkDeploymentNodeSelectors,
+		NodeSelector:                  dpNodeSelectors,
 		RestartPolicy:                 corev1.RestartPolicyAlways,
 		TerminationGracePeriodSeconds: &graceSeconds,
 		ServiceAccountName:            checkServiceAccount,
@@ -259,25 +259,25 @@ func createDeployment(ctx context.Context, deploymentConfig *v1.Deployment) chan
 }
 
 // createToleration creates a container resource spec and returns it.
-func createToleration(t string) corev1.Toleration {
+// func createToleration(t string) corev1.Toleration {
 
-	// return blank tolerations if no value provided in yaml file
-	if len(t) == 0 {
-		tolerations := corev1.Toleration{
-			Operator: corev1.TolerationOpExists,
-		}
-		return tolerations
-	}
+// 	// return blank tolerations if no value provided in yaml file
+// 	if len(t) == 0 {
+// 		tolerations := corev1.Toleration{
+// 			Operator: corev1.TolerationOpExists,
+// 		}
+// 		return tolerations
+// 	}
 
-	// Create toleration Key
-	tolerations := corev1.Toleration{
-		Key:      t,
-		Operator: corev1.TolerationOpEqual,
-		Value:    "kuberhealthy",
-		Effect:   corev1.TaintEffectNoSchedule,
-	}
-	return tolerations
-}
+// 	// Create toleration Key
+// 	tolerations := corev1.Toleration{
+// 		Key:      t,
+// 		Operator: corev1.TolerationOpEqual,
+// 		Value:    "kuberhealthy",
+// 		Effect:   corev1.TaintEffectNoSchedule,
+// 	}
+// 	return tolerations
+// }
 
 // createContainerConfig creates a container resource spec and returns it.
 func createContainerConfig(imageURL string) corev1.Container {

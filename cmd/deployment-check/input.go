@@ -20,6 +20,7 @@ import (
 
 	kh "github.com/Comcast/kuberhealthy/v2/pkg/checks/external/checkclient"
 	log "github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // parseDebugSettings parses debug settings and fatals on errors.
@@ -40,6 +41,39 @@ func parseDebugSettings() {
 		log.SetLevel(log.DebugLevel)
 	}
 	log.Debugln(os.Args)
+}
+
+func createToleration(toleration string) *corev1.Toleration {
+	splitkv := strings.Split(toleration, "=")
+	//does toleration has a value provided
+	if len(splitkv) > 1 {
+		findte := strings.Split(splitkv[1], ":")
+		//does toleration have an effect
+		if len(findte) > 1 {
+			//get value/effect and generate toleration
+			tvalue := findte[0]
+			teffect := findte[1]
+			t := corev1.Toleration{
+				Key:      splitkv[0],
+				Operator: corev1.TolerationOpEqual,
+				Value:    tvalue,
+				Effect:   corev1.TaintEffect(teffect),
+			}
+			return &t
+		}
+		// generate based on splitkv
+		t := corev1.Toleration{
+			Key:      splitkv[0],
+			Operator: corev1.TolerationOpEqual,
+			Value:    splitkv[1],
+		}
+		return &t
+	}
+	t := corev1.Toleration{
+		Key:      toleration,
+		Operator: corev1.TolerationOpExists,
+	}
+	return &t
 }
 
 // parseInputValues parses all incoming environment variables for the program into globals and fatals on errors.
@@ -123,22 +157,6 @@ func parseInputValues() {
 		}
 		checkDeploymentReplicas = reps
 		log.Infoln("Parsed CHECK_DEPLOYMENT_REPLICAS:", checkDeploymentReplicas)
-	}
-
-	// Parse incoming deployment node selectors
-	if len(checkDeploymentNodeSelectorsEnv) > 0 {
-		splitEnvVars := strings.Split(checkDeploymentNodeSelectorsEnv, ",")
-		for _, splitEnvVarKeyValuePair := range splitEnvVars {
-			parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
-			if len(parsedEnvVarKeyValuePair) != 2 {
-				log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
-				continue
-			}
-			if _, ok := checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
-				checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
-			}
-		}
-		log.Infoln("Parsed NODE_SELECTOR:", checkDeploymentNodeSelectors)
 	}
 
 	// Parse incoming check pod resource requests and limits
@@ -249,4 +267,38 @@ func parseInputValues() {
 		shutdownGracePeriod = duration
 		log.Infoln("Parsed SHUTDOWN_GRACE_PERIOD:", shutdownGracePeriod)
 	}
+
+	// Parse incoming deployment node selectors
+	if len(dpNodeSelectorsEnv) != 0 {
+		splitEnvVars := strings.Split(dpNodeSelectorsEnv, ",")
+		for _, splitEnvVarKeyValuePair := range splitEnvVars {
+			parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
+			if len(parsedEnvVarKeyValuePair) != 2 {
+				log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
+				continue
+			}
+			if _, ok := dpNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
+				dpNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
+			}
+		}
+		log.Infoln("Parsed NODE_SELECTOR:", dpNodeSelectors)
+	}
+
+	// Parse incoming deployment tolerations
+	if len(tolerationsEnv) != 0 {
+		splitEnvVars := strings.Split(tolerationsEnv, ",")
+		//do we have multiple tolerations
+		if len(splitEnvVars) > 1 {
+			for _, toleration := range splitEnvVars {
+				//parse each toleration, create a corev1.Toleration object, and append to tolerations slice
+				tol := createToleration(toleration)
+				tolerations = append(tolerations, *tol)
+			}
+		}
+	}
+	//parse single toleration and append to slice
+	tol := createToleration(tolerationsEnv)
+	tolerations = append(tolerations, *tol)
+
+	log.Infoln("Parsed TOLERATIONS:", tolerations)
 }
