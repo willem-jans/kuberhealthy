@@ -10,11 +10,11 @@ spec:
   podSpec:
     containers:
     - name: deployment
-      image: jdowni000/deployment-check:dev
+      image: kuberhealthy/deployment-check:v1.7.1
       imagePullPolicy: Always
       env:
         - name: CHECK_DEPLOYMENT_REPLICAS
-          value: "1"
+          value: "4"
         - name: CHECK_DEPLOYMENT_ROLLING_UPDATE
           value: "true"
         - name: NODE_SELECTOR

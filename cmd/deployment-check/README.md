@@ -81,10 +81,10 @@ spec:
             value: "4"
           - name: CHECK_DEPLOYMENT_ROLLING_UPDATE
             value: "true"
-          - name: TOLERATION_VALUE
-            value: ""
           - name: NODE_SELECTOR
             value: ""
+          - name: TOLERATIONS
+          value: ""
         resources:
           requests:
             cpu: 25m
