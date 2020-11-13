@@ -14,7 +14,7 @@ spec:
       imagePullPolicy: Always
       env:
         - name: CHECK_DEPLOYMENT_REPLICAS
-          value: "4"
+          value: "1"
         - name: CHECK_DEPLOYMENT_ROLLING_UPDATE
           value: "true"
         - name: NODE_SELECTOR

@@ -71,7 +71,6 @@ func createDeploymentConfig(image string) *v1.Deployment {
 
 	// Make a slice for containers for the pods in the deployment.
 	containers := make([]corev1.Container, 0)
-	tolerations := make([]corev1.Toleration, 0)
 
 	if len(checkImage) == 0 {
 		err := errors.New("check image url for container is empty: " + checkImage)
@@ -250,27 +249,6 @@ func createDeployment(ctx context.Context, deploymentConfig *v1.Deployment) chan
 
 	return createChan
 }
-
-// createToleration creates a container resource spec and returns it.
-// func createToleration(t string) corev1.Toleration {
-
-// 	// return blank tolerations if no value provided in yaml file
-// 	if len(t) == 0 {
-// 		tolerations := corev1.Toleration{
-// 			Operator: corev1.TolerationOpExists,
-// 		}
-// 		return tolerations
-// 	}
-
-// 	// Create toleration Key
-// 	tolerations := corev1.Toleration{
-// 		Key:      t,
-// 		Operator: corev1.TolerationOpEqual,
-// 		Value:    "kuberhealthy",
-// 		Effect:   corev1.TaintEffectNoSchedule,
-// 	}
-// 	return tolerations
-// }
 
 // createContainerConfig creates a container resource spec and returns it.
 func createContainerConfig(imageURL string) corev1.Container {
