@@ -1,4 +1,4 @@
-IMAGE="kuberhealthy/deployment-check"
+IMAGE="jdowni000/deployment-check"
 TAG="dev"
 
 build:

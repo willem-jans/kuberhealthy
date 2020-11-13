@@ -84,13 +84,6 @@ func createDeploymentConfig(image string) *v1.Deployment {
 	container = createContainerConfig(checkImage)
 	containers = append(containers, container)
 
-	//
-	// var toleration corev1.Toleration
-	// toleration = createToleration(tolerationValue)
-	// tolerations = append(tolerations, toleration)
-
-	// Check for given node selector values.
-	// Set the map to the default of nil (<none>) if there are no selectors given.
 	if len(dpNodeSelectorsEnv) == 0 {
 		dpNodeSelectorsEnv = ""
 	}

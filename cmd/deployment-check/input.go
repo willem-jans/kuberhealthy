@@ -286,6 +286,7 @@ func parseInputValues() {
 
 	// Parse incoming deployment tolerations
 	if len(tolerationsEnv) != 0 {
+
 		splitEnvVars := strings.Split(tolerationsEnv, ",")
 		//do we have multiple tolerations
 		if len(splitEnvVars) > 1 {
@@ -294,11 +295,10 @@ func parseInputValues() {
 				tol := createToleration(toleration)
 				tolerations = append(tolerations, *tol)
 			}
+			//parse single toleration and append to slice
+			tol := createToleration(tolerationsEnv)
+			tolerations = append(tolerations, *tol)
 		}
 	}
-	//parse single toleration and append to slice
-	tol := createToleration(tolerationsEnv)
-	tolerations = append(tolerations, *tol)
-
 	log.Infoln("Parsed TOLERATIONS:", tolerations)
 }

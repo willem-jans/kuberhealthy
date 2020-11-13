@@ -10,8 +10,8 @@ spec:
   podSpec:
     containers:
     - name: deployment
-      image: kuberhealthy/deployment-check:dev
-      imagePullPolicy: IfNotPresent
+      image: jdowni000/deployment-check:dev
+      imagePullPolicy: Always
       env:
         - name: CHECK_DEPLOYMENT_REPLICAS
           value: "4"
