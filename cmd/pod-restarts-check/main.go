@@ -48,6 +48,9 @@ var CheckTimeout time.Duration
 // MaxFailuresAllowed is a variable for how many times the pod should retry before stopping.
 var MaxFailuresAllowed int32
 
+// Check deadline from injected env variable KH_CHECK_RUN_DEADLINE
+var khCheckRunDeadlineEnv = os.Getenv("KH_CHECK_RUN_DEADLINE")
+
 // Checker represents a long running pod restart checker.
 type Checker struct {
 	Namespace          string
@@ -95,11 +98,22 @@ func main() {
 		log.Fatalln("Unable to create kubernetes client", err)
 	}
 
+	// create check run deadline
+	intkhCheckRundDeadline, err := strconv.ParseInt(khCheckRunDeadlineEnv, 10, 64)
+	if err != nil {
+		log.Fatalln("Error parsing KH_CHECK_RUN_DEADLINE:", err)
+	}
+	khCheckRunDeadline := time.Unix(intkhCheckRundDeadline, 0)
+
+	khCheckRunTime := khCheckRunDeadline.Sub(time.Now()) / 2
+
+	ctx, _ := context.WithTimeout(context.Background(), khCheckRunTime)
+
 	// Create new pod restarts checker with Kubernetes client
 	prc := New(client)
 
 	// Run check
-	err = prc.Run()
+	err = prc.Run(ctx)
 	if err != nil {
 		log.Errorln("Error running Pod Restarts check:", err)
 		os.Exit(2)
@@ -120,13 +134,13 @@ func New(client *kubernetes.Clientset) *Checker {
 
 // Run starts the go routine to run checks, reports whether or not the check completely successfully, and finally checks
 // for any errors in the Checker struct and re
-func (prc *Checker) Run() error {
+func (prc *Checker) Run(ctx context.Context) error {
 	log.Infoln("Running Pod Restarts checker")
 	doneChan := make(chan error)
 
 	// run the check in a goroutine and notify the doneChan when completed
 	go func(doneChan chan error) {
-		err := prc.doChecks()
+		err := prc.doChecks(ctx)
 		doneChan <- err
 	}(doneChan)
 
@@ -160,11 +174,11 @@ func (prc *Checker) Run() error {
 // doChecks grabs all events in a given namespace, then checks for pods with event type "Warning" with reason "BackOff",
 // and an event count greater than the MaxFailuresAllowed. If any of these pods are found, an error message is appended
 // to Checker struct errorMessages.
-func (prc *Checker) doChecks() error {
+func (prc *Checker) doChecks(ctx context.Context) error {
 
 	log.Infoln("Checking for pod BackOff events for all pods in the namespace:", prc.Namespace)
 
-	podWarningEvents, err := prc.client.CoreV1().Events(prc.Namespace).List(context.TODO(), metav1.ListOptions{FieldSelector: "type=Warning"})
+	podWarningEvents, err := prc.client.CoreV1().Events(prc.Namespace).List(ctx, metav1.ListOptions{FieldSelector: "type=Warning"})
 	if err != nil {
 		return err
 	}

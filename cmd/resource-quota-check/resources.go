@@ -17,10 +17,10 @@ type Job struct {
 	namespace string
 }
 
-func runResourceQuotaCheck() {
+func runResourceQuotaCheck(ctx context.Context) {
 
 	// List all namespaces in the cluster.
-	allNamespaces, err := client.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	allNamespaces, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		err = fmt.Errorf("error occurred listing namespaces from the cluster: %v", err)
 		reportErr := kh.ReportFailure([]string{err.Error()})
