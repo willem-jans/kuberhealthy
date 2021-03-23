@@ -12,6 +12,7 @@
 package masterCalculation
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	master, err := CalculateMaster(client)
+	master, err := CalculateMaster(context.TODO(), client)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,12 +54,12 @@ func getEnvVar(v string) (string, error) {
 }
 
 // CalculateMaster determines which kuberhealthy pod should assume the master role
-func CalculateMaster(client *kubernetes.Clientset) (string, error) {
+func CalculateMaster(ctx context.Context, client *kubernetes.Clientset) (string, error) {
 
 	log.Debugln("Calculating current master...")
 
 	// get a list of all kuberhealthy pods
-	pods, err := client.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+	pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=kuberhealthy", FieldSelector: "status.phase=Running",
 	})
 	if err != nil {
@@ -86,14 +86,14 @@ func CalculateMaster(client *kubernetes.Clientset) (string, error) {
 }
 
 // IAmMaster determines if the executing pod is the cluster master or not
-func IAmMaster(client *kubernetes.Clientset) (bool, error) {
+func IAmMaster(ctx context.Context, client *kubernetes.Clientset) (bool, error) {
 
 	// if we are in debug enable master always, then just return true
 	if enableForceMaster {
 		return true, nil
 	}
 
-	master, err := CalculateMaster(client)
+	master, err := CalculateMaster(ctx, client)
 	if err != nil {
 		return false, err
 	}

@@ -332,7 +332,7 @@ func generateDaemonSetSpec(ctx context.Context) *appsv1.DaemonSet {
 	}
 
 	// Add daemonset check pod ownerReference
-	ownerRef, err := util.GetOwnerRef(client, checkNamespace)
+	ownerRef, err := util.GetOwnerRef(ctx, client, checkNamespace)
 	if err != nil {
 		log.Errorln("Error getting ownerReference:", err)
 	}

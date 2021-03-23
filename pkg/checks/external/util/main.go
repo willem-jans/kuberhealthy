@@ -21,12 +21,12 @@ const (
 )
 
 // GetOwnerRef fetches the UID from the pod and returns OwnerReference
-func GetOwnerRef(client *kubernetes.Clientset, namespace string) ([]metav1.OwnerReference, error) {
+func GetOwnerRef(ctx context.Context, client *kubernetes.Clientset, namespace string) ([]metav1.OwnerReference, error) {
 	podName, err := os.Hostname()
 	if err != nil {
 		return nil, err
 	}
-	podSpec, err := getKuberhealthyPod(client, namespace, strings.ToLower(podName))
+	podSpec, err := getKuberhealthyPod(ctx, client, namespace, strings.ToLower(podName))
 	if err != nil {
 		return nil, err
 	}
@@ -41,9 +41,9 @@ func GetOwnerRef(client *kubernetes.Clientset, namespace string) ([]metav1.Owner
 }
 
 // getKuberhealthyPod fetches the podSpec
-func getKuberhealthyPod(client *kubernetes.Clientset, namespace, podName string) (*apiv1.Pod, error) {
+func getKuberhealthyPod(ctx context.Context, client *kubernetes.Clientset, namespace, podName string) (*apiv1.Pod, error) {
 	podClient := client.CoreV1().Pods(namespace)
-	kHealthyPod, err := podClient.Get(context.TODO(), podName, metav1.GetOptions{})
+	kHealthyPod, err := podClient.Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

@@ -131,13 +131,13 @@ func createWorkerForNamespaceResourceQuotaCheck(namespace string, quotasChan cha
 		}
 	}
 
-	examineResouceQuotasForNamespace(namespace, quotasChan)
+	examineResouceQuotasForNamespace(ctx, namespace, quotasChan)
 }
 
 // examineResouceQuotasForNamespace looks at resource quotas and sends error messages on threshold violations.
-func examineResouceQuotasForNamespace(namespace string, c chan<- string) {
+func examineResouceQuotasForNamespace(ctx context.Context, namespace string, c chan<- string) {
 	log.Infoln("Looking at resource quotas for", namespace, "namespace.")
-	quotas, err := client.CoreV1().ResourceQuotas(namespace).List(context.TODO(), metav1.ListOptions{})
+	quotas, err := client.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		err = fmt.Errorf("error occurred listing resource quotas for %s namespace %v", namespace, err)
 		c <- err.Error()

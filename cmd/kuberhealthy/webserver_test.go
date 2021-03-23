@@ -79,7 +79,7 @@ func TestWebServer(t *testing.T) {
 	if err != nil {
 		t.Fatal("Error creating request", err)
 	}
-	err = kh.healthCheckHandler(recorder, req)
+	err = kh.healthCheckHandler(context.TODO(), recorder, req)
 	if err != nil {
 		t.Fatal("Error from health check handler:", err)
 	}
@@ -128,7 +128,7 @@ func TestWebServerNotOK(t *testing.T) {
 	if err != nil {
 		t.Fatal("Error creating request", err)
 	}
-	err = kh.healthCheckHandler(recorder, req)
+	err = kh.healthCheckHandler(context.TODO(), recorder, req)
 	if err != nil {
 		t.Fatal("Error from health check handler:", err)
 	}

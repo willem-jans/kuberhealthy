@@ -294,7 +294,7 @@ func (k *Kuberhealthy) khStateResourceReaper(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			log.Infoln("khState reaper: starting to run an audit")
-			err := k.reapKHStateResources()
+			err := k.reapKHStateResources(ctx)
 			if err != nil {
 				log.Errorln("khState reaper: Error when reaping khState resources:", err)
 			}
@@ -308,7 +308,7 @@ func (k *Kuberhealthy) khStateResourceReaper(ctx context.Context) {
 
 // reapKHStateResources runs a single audit on khState resources.  Any that don't have a matching khCheck are
 // deleted.
-func (k *Kuberhealthy) reapKHStateResources() error {
+func (k *Kuberhealthy) reapKHStateResources(ctx context.Context) error {
 
 	// list all khStates in the cluster
 	khStates, err := khStateClient.List(metav1.ListOptions{}, stateCRDResource, "")
@@ -316,7 +316,7 @@ func (k *Kuberhealthy) reapKHStateResources() error {
 		return fmt.Errorf("khState reaper: error listing khStates for reaping: %w", err)
 	}
 
-	khChecks, err := listUnstructuredKHChecks()
+	khChecks, err := listUnstructuredKHChecks(ctx)
 	if err != nil {
 		return fmt.Errorf("khState reaper: error listing unstructured khChecks: %w", err)
 	}
@@ -449,7 +449,7 @@ func (k *Kuberhealthy) watchForKHCheckChanges(ctx context.Context, c chan struct
 		time.Sleep(time.Second)
 
 		// start a watch on khcheck resources
-		watcher, err := watchUnstructuredKHChecks()
+		watcher, err := watchUnstructuredKHChecks(ctx)
 		if err != nil {
 			log.Errorln("error creating watcher for khcheck objects:", err)
 			continue
@@ -534,7 +534,7 @@ func (k *Kuberhealthy) monitorExternalChecks(ctx context.Context, notify chan st
 		<-c
 		log.Debugln("Change notification received. Scanning for external check changes...")
 
-		khChecks, err := listUnstructuredKHChecks()
+		khChecks, err := listUnstructuredKHChecks(ctx)
 		if err != nil {
 			log.Errorln("error listing unstructured khChecks: %w", err)
 			continue
@@ -640,11 +640,11 @@ func (k *Kuberhealthy) monitorExternalChecks(ctx context.Context, notify chan st
 
 // setExternalChecks syncs up the state of the external-checks installed in this
 // Kuberhealthy struct.
-func (k *Kuberhealthy) addExternalChecks() error {
+func (k *Kuberhealthy) addExternalChecks(ctx context.Context) error {
 
 	log.Debugln("Fetching khcheck configurations...")
 
-	khChecks, err := listUnstructuredKHChecks()
+	khChecks, err := listUnstructuredKHChecks(ctx)
 	if err != nil {
 		return err
 	}
@@ -757,7 +757,7 @@ func (k *Kuberhealthy) StartChecks(ctx context.Context) {
 	k.wg.Wait()
 
 	log.Infoln("control: Reloading check configuration...")
-	k.configureChecks()
+	k.configureChecks(ctx)
 
 	// sleep to make a more graceful switch-up during lots of master and check changes coming in
 	log.Infoln("control:", len(k.Checks), "checks starting!")
@@ -820,7 +820,7 @@ func (k *Kuberhealthy) masterStatusWatcher(ctx context.Context) {
 
 			// determine if we are becoming master or not
 			var err error
-			upcomingMasterState, err = masterCalculation.IAmMaster(kubernetesClient)
+			upcomingMasterState, err = masterCalculation.IAmMaster(ctx, kubernetesClient)
 			if err != nil {
 				log.Errorln(err)
 			}
@@ -1109,7 +1109,7 @@ func (k *Kuberhealthy) storeCheckState(checkName string, checkNamespace string, 
 func (k *Kuberhealthy) StartWebServer(ctx context.Context) {
 	log.Infoln("Configuring web server")
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		err := k.prometheusMetricsHandler(w, r)
+		err := k.prometheusMetricsHandler(ctx, w, r)
 		if err != nil {
 			log.Errorln(err)
 		}
@@ -1125,7 +1125,7 @@ func (k *Kuberhealthy) StartWebServer(ctx context.Context) {
 
 	// Assign all requests to be handled by the healthCheckHandler function
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		err := k.healthCheckHandler(w, r)
+		err := k.healthCheckHandler(ctx, w, r)
 		if err != nil {
 			log.Errorln(err)
 		}
@@ -1268,7 +1268,7 @@ func (k *Kuberhealthy) fetchPodByIP(ctx context.Context, remoteIP string) (v1.Po
 	listOptions := metav1.ListOptions{
 		FieldSelector: "status.podIP==" + remoteIP + ",status.phase==Running",
 	}
-	podList, err := podClient.List(context.TODO(), listOptions)
+	podList, err := podClient.List(ctx, listOptions)
 	if err != nil {
 		return pod, errors.New("failed to fetch pod with remote ip " + remoteIP + " with error: " + err.Error())
 	}
@@ -1411,9 +1411,9 @@ func (k *Kuberhealthy) writeHealthCheckError(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func (k *Kuberhealthy) prometheusMetricsHandler(w http.ResponseWriter, r *http.Request) error {
+func (k *Kuberhealthy) prometheusMetricsHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	log.Infoln("Client connected to prometheus metrics endpoint from", r.RemoteAddr, r.UserAgent())
-	state := k.getCurrentState([]string{})
+	state := k.getCurrentState(ctx, []string{})
 	m := metrics.GenerateMetrics(state)
 	// write summarized health check results back to caller
 	_, err := w.Write([]byte(m))
@@ -1425,7 +1425,7 @@ func (k *Kuberhealthy) prometheusMetricsHandler(w http.ResponseWriter, r *http.R
 
 // healthCheckHandler returns the current status of checks loaded into Kuberhealthy
 // as JSON to the client. Respects namespace requests via URL query parameters (i.e. /?namespace=default)
-func (k *Kuberhealthy) healthCheckHandler(w http.ResponseWriter, r *http.Request) error {
+func (k *Kuberhealthy) healthCheckHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	log.Infoln("Client connected to status page from", r.RemoteAddr, r.UserAgent())
 
 	// If a request body was supplied, throw an error to ensure that checks don't report into the wrong url
@@ -1453,7 +1453,7 @@ func (k *Kuberhealthy) healthCheckHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	// fetch the current status from our khstate resources
-	state := k.getCurrentState(namespaces)
+	state := k.getCurrentState(ctx, namespaces)
 
 	// write summarized health check results back to caller
 	err = state.WriteHTTPStatusResponse(w)
@@ -1467,9 +1467,9 @@ func (k *Kuberhealthy) healthCheckHandler(w http.ResponseWriter, r *http.Request
 // their CRD objects and returns the summary as a health.State. Without a requested namespace,
 // this will return the state of ALL found checks.
 // Failures to fetch CRD state return an error.
-func (k *Kuberhealthy) getCurrentState(namespaces []string) health.State {
+func (k *Kuberhealthy) getCurrentState(ctx context.Context, namespaces []string) health.State {
 
-	currentMaster, err := masterCalculation.CalculateMaster(kubernetesClient)
+	currentMaster, err := masterCalculation.CalculateMaster(ctx, kubernetesClient)
 	if err != nil {
 		log.Errorln("Failed to calculate master:", err)
 	}
@@ -1570,14 +1570,14 @@ func (k *Kuberhealthy) getJob(name string, namespace string) (KuberhealthyCheck,
 
 // configureChecks removes all checks set in Kuberhealthy and reloads them
 // based on the configuration options
-func (k *Kuberhealthy) configureChecks() {
+func (k *Kuberhealthy) configureChecks(ctx context.Context) {
 	log.Infoln("control: Loading check configuration...")
 
 	// wipe all existing checks before we configure
 	k.Checks = []KuberhealthyCheck{}
 
 	// check external check configurations
-	err := k.addExternalChecks()
+	err := k.addExternalChecks(ctx)
 	if err != nil {
 		log.Errorln("control: ERROR loading external checks:", err)
 	}
@@ -1613,7 +1613,7 @@ func (k *Kuberhealthy) configureInfluxForwarding() {
 	k.MetricForwarder = metricClient
 }
 
-func listUnstructuredKHChecks() (*unstructured.UnstructuredList, error) {
+func listUnstructuredKHChecks(ctx context.Context) (*unstructured.UnstructuredList, error) {
 
 	khCheckGroupVersionResource := schema.GroupVersionResource{
 		Version:  checkCRDVersion,
@@ -1621,7 +1621,7 @@ func listUnstructuredKHChecks() (*unstructured.UnstructuredList, error) {
 		Group:    checkCRDGroup,
 	}
 
-	unstructuredList, err := dynamicClient.Resource(khCheckGroupVersionResource).Namespace("").List(context.TODO(), metav1.ListOptions{})
+	unstructuredList, err := dynamicClient.Resource(khCheckGroupVersionResource).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return unstructuredList, err
 	}
@@ -1640,7 +1640,7 @@ func convertUnstructuredKhCheck(unstructured unstructured.Unstructured) (khcheck
 	return khCheck, err
 }
 
-func watchUnstructuredKHChecks() (watch.Interface, error) {
+func watchUnstructuredKHChecks(ctx context.Context) (watch.Interface, error) {
 
 	khCheckGroupVersionResource := schema.GroupVersionResource{
 		Version:  checkCRDVersion,
@@ -1648,7 +1648,7 @@ func watchUnstructuredKHChecks() (watch.Interface, error) {
 		Group:    checkCRDGroup,
 	}
 
-	watcher, err := dynamicClient.Resource(khCheckGroupVersionResource).Namespace("").Watch(context.TODO(), metav1.ListOptions{})
+	watcher, err := dynamicClient.Resource(khCheckGroupVersionResource).Namespace("").Watch(ctx, metav1.ListOptions{})
 	if err != nil {
 		return watcher, err
 	}

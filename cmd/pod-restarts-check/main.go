@@ -200,7 +200,7 @@ func (prc *Checker) doChecks(ctx context.Context) error {
 	}
 
 	for pod := range prc.BadPods {
-		err := prc.verifyBadPodRestartExists(pod)
+		err := prc.verifyBadPodRestartExists(ctx, pod)
 		if err != nil {
 			return err
 		}
@@ -210,9 +210,9 @@ func (prc *Checker) doChecks(ctx context.Context) error {
 }
 
 // verifyBadPodRestartExists removes the bad pod found from the events list if the pod no longer exists
-func (prc *Checker) verifyBadPodRestartExists(podName string) error {
+func (prc *Checker) verifyBadPodRestartExists(ctx context.Context, podName string) error {
 
-	_, err := prc.client.CoreV1().Pods(prc.Namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+	_, err := prc.client.CoreV1().Pods(prc.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) || strings.Contains(err.Error(), "not found") {
 			log.Infoln("Bad Pod:", podName, "no longer exists. Removing from bad pods map")
