@@ -1,5 +1,5 @@
 IMAGE="kuberhealthy/node-check"
-TAG="v0.0.1"
+TAG="v0.0.7"
 
 build:
 	docker build -t ${IMAGE}:${TAG} -f Dockerfile ../../

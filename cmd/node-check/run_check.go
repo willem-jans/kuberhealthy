@@ -13,14 +13,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 
 	nodeCheck "github.com/Comcast/kuberhealthy/v2/pkg/checks/external/nodeCheck"
-
-	corev1 "k8s.io/api/core/v1"
 )
 
 // runNodeCheck applies a pod specification to each targeted node in the cluster.
@@ -39,17 +37,18 @@ func runNodeCheck(ctx context.Context) {
 	runTimeout := time.After(checkTimeLimit)
 
 	// List targeted / qualifying nodes for this check.
-	var nodeListResult NodeListResult
+	var nodeList NodeListResult
 	select {
-	case nodeListResult = <-listTargetedNodes(ctx):
+	case nodeList = <-listTargetedNodes(ctx):
 		// Report node listing errors.
-		if nodeListResult.Err != nil {
-			log.Errorln("error when listing targeted or qualifying nodes:", nodeListResult.Err)
-			reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+		if nodeList.Err != nil {
+			log.Errorln("error when listing targeted or qualifying nodes:", nodeList.Err)
+			reportOKToKuberhealthy()
+			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
 			return
 		}
 		// Exit the check if the slice of resulting nodes is empty.
-		if len(nodeListResult.NodeList == 0) {
+		if len(nodeList.NodeList) == 0 {
 			log.Infoln("There were no qualifying target nodes found within the cluster.")
 			reportOKToKuberhealthy()
 			return
@@ -57,59 +56,66 @@ func runNodeCheck(ctx context.Context) {
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
 		log.Infoln("Canceling node target listing and shutting down from interrupt.")
-		reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
 		return
 	case <-runTimeout:
 		// If creating a deployment took too long, exit.
-		reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
+	log.Debugln("Found", len(nodeList.NodeList), "targeted nodes.")
 
-	// List targeted / qualifying nodes for this check.
-	var nodes []NodeInfo
+	// List unschedulable nodes to skip.
+	var unschedulableNodeList NodeListResult
 	select {
-	case nodes = <-removeUnscheduableNodes(ctx):
+	case unschedulableNodeList = <-listUnschedulableNodes(ctx):
 		// Report node listing errors.
-		if nodeListResult.Err != nil {
-			log.Errorln("error when listing targeted or qualifying nodes:", nodeListResult.Err)
-			reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
-			return
-		}
-		// Exit the check if the slice of resulting nodes is empty.
-		if len(nodeListResult.NodeList == 0) {
-			log.Infoln("There were no qualifying target nodes found within the cluster.")
+		if unschedulableNodeList.Err != nil {
+			log.Errorln("error when listing unschedulable nodes:", unschedulableNodeList.Err)
 			reportOKToKuberhealthy()
+			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
 			return
 		}
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
-		log.Infoln("Canceling node target listing and shutting down from interrupt.")
-		reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+		log.Infoln("Canceling unschedulable node listing and shutting down from interrupt.")
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
 		return
 	case <-runTimeout:
 		// If creating a deployment took too long, exit.
-		reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
+	log.Debugln("Found", len(unschedulableNodeList.NodeList), "targeted nodes.")
+
+	// Trim the unschedaluable nodes from the list of targeted nodes.
+	targetedNodes := removeUnscheduableNodes(nodeList.NodeList, unschedulableNodeList.NodeList)
 
 	// Create pod specs for each targeted node.
-	var podSpecList []corev1.Pod
+	var podSpecs []corev1.Pod
 	select {
-	case podSpecList = <-createPodSpecs(ctx, nodeListResult.NodeList):
+	case podSpecs = <-createPodSpecs(ctx, targetedNodes):
 		// Report node listing errors.
 		if nodeListResult.Err != nil {
 			log.Errorln("error when listing targeted or qualifying nodes:", nodeListResult.Err)
-			reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+			reportOKToKuberhealthy()
+			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
 			return
 		}
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
 		log.Infoln("Canceling node target listing and shutting down from interrupt.")
-		reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
 		return
 	case <-runTimeout:
 		// If creating a deployment took too long, exit.
-		reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
 
@@ -319,48 +325,48 @@ func runNodeCheck(ctx context.Context) {
 	// if cleanUpError != nil {
 	// 	reportErrorsToKuberhealthy([]string{cleanUpError.Error()})
 	// }
-	// // Report to Kuberhealthy.
-	// reportOKToKuberhealthy()
+	// Report to Kuberhealthy.
+	reportOKToKuberhealthy()
 }
 
 // cleanUp cleans up the deployment check and all resource manifests created that relate to
 // the check.
 // TODO - add in context that expires when check times out
-func cleanUp(ctx context.Context) error {
+// func cleanUp(ctx context.Context) error {
 
-	log.Infoln("Cleaning up deployment and service.")
-	var err error
-	var resultErr error
-	errorMessage := ""
+// 	log.Infoln("Cleaning up deployment and service.")
+// 	var err error
+// 	var resultErr error
+// 	errorMessage := ""
 
-	// Delete the service.
-	// TODO - add select to catch context timeout expiration
-	err = deleteServiceAndWait(ctx)
-	if err != nil {
-		log.Errorln("error cleaning up service:", err)
-		errorMessage = errorMessage + "error cleaning up service:" + err.Error()
-	}
+// 	// Delete the service.
+// 	// TODO - add select to catch context timeout expiration
+// 	err = deleteServiceAndWait(ctx)
+// 	if err != nil {
+// 		log.Errorln("error cleaning up service:", err)
+// 		errorMessage = errorMessage + "error cleaning up service:" + err.Error()
+// 	}
 
-	// Delete the deployment.
-	// TODO - add select to catch context timeout expiration
-	err = deleteDeploymentAndWait(ctx)
-	if err != nil {
-		log.Errorln("error cleaning up deployment:", err)
-		if len(errorMessage) != 0 {
-			errorMessage = errorMessage + " | "
-		}
-		errorMessage = errorMessage + "error cleaning up deployment:" + err.Error()
-	}
+// 	// Delete the deployment.
+// 	// TODO - add select to catch context timeout expiration
+// 	err = deleteDeploymentAndWait(ctx)
+// 	if err != nil {
+// 		log.Errorln("error cleaning up deployment:", err)
+// 		if len(errorMessage) != 0 {
+// 			errorMessage = errorMessage + " | "
+// 		}
+// 		errorMessage = errorMessage + "error cleaning up deployment:" + err.Error()
+// 	}
 
-	log.Infoln("Finished clean up process.")
+// 	log.Infoln("Finished clean up process.")
 
-	// Create an error if errors occurred during the clean up process.
-	if len(errorMessage) != 0 {
-		resultErr = fmt.Errorf("%s", errorMessage)
-	}
+// 	// Create an error if errors occurred during the clean up process.
+// 	if len(errorMessage) != 0 {
+// 		resultErr = fmt.Errorf("%s", errorMessage)
+// 	}
 
-	return resultErr
-}
+// 	return resultErr
+// }
 
 // cleanUpOrphanedResources cleans up previous deployment and services and ensures
 // a clean slate before beginning a deployment and service check.

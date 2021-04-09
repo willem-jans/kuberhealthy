@@ -107,21 +107,22 @@ func parseInputValues() {
 	// 	log.Infoln("Parsed TOLERATIONS:", checkDeploymentTolerations)
 	// }
 
-	// // Parse incoming deployment node selectors
-	// if len(checkDeploymentNodeSelectorsEnv) > 0 {
-	// 	splitEnvVars := strings.Split(checkDeploymentNodeSelectorsEnv, ",")
-	// 	for _, splitEnvVarKeyValuePair := range splitEnvVars {
-	// 		parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
-	// 		if len(parsedEnvVarKeyValuePair) != 2 {
-	// 			log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
-	// 			continue
-	// 		}
-	// 		if _, ok := checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
-	// 			checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
-	// 		}
-	// 	}
-	// 	log.Infoln("Parsed NODE_SELECTOR:", checkDeploymentNodeSelectors)
-	// }
+	// Parse incoming deployment node selectors
+	if len(checkNodeSelectorsEnv) > 0 {
+		// splitEnvVars := strings.Split(checkNodeSelectorsEnv, ",")
+		// for _, splitEnvVarKeyValuePair := range splitEnvVars {
+		// 	parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
+		// 	if len(parsedEnvVarKeyValuePair) != 2 {
+		// 		log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
+		// 		continue
+		// 	}
+		// 	if _, ok := checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
+		// 		checkDeploymentNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
+		// 	}
+		// }
+		log.Infoln("Parsed NODE_SELECTOR:", checkNodeSelectorsEnv)
+		// log.Infoln("Parsed NODE_SELECTOR:", checkDeploymentNodeSelectors)
+	}
 
 	// Parse incoming node selectors
 	// if len(checkNodeSelectorsEnv) > 0 {

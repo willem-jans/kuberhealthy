@@ -40,7 +40,7 @@ func createPodSpecs(ctx context.Context, nodes []corev1.Node) chan []corev1.Pod 
 		for _, node := range nodes {
 			// Skip unschedulable nodes
 			if node.Spec.Unschedulable {
-				
+
 				continue
 			}
 
@@ -63,7 +63,7 @@ func createPodSpecs(ctx context.Context, nodes []corev1.Node) chan []corev1.Pod 
 			// 	// specification for it and add it to the list
 			// 	podSpecList = append(podSpecList, createPodSpec(node))
 			// }
-			podSpecList = append(podSpecList, createPodSpec(node))
+			// podSpecList = append(podSpecList, createPodSpec(node))
 		}
 
 		// Return this list of pod specifications
@@ -74,15 +74,15 @@ func createPodSpecs(ctx context.Context, nodes []corev1.Node) chan []corev1.Pod 
 	return podSpecsCompleted
 }
 
-// createPodSpec returns a pod spec for the specified node.
-func createPodSpec(node corev1.Node) corev1.Pod {
-	pod := corev1.Pod{}
+// // createPodSpec returns a pod spec for the specified node.
+// func createPodSpec(node corev1.Node) corev1.Pod {
+// 	pod := corev1.Pod{}
 
-	pod.Labels = node.ObjectMeta.Labels
-	pod.Name = checkName + "-" + node.ObjectMeta.Name
-	pod.Namespace = checkNamespace
+// 	pod.Labels = node.ObjectMeta.Labels
+// 	pod.Name = checkName + "-" + node.ObjectMeta.Name
+// 	pod.Namespace = checkNamespace
 
-	// Make a container for the node.
-	container := createContainerConfig(image)
-	pod.Spec.Containers = 
-}
+// 	// Make a container for the node.
+// 	container := createContainerConfig(image)
+// 	pod.Spec.Containers =
+// }
