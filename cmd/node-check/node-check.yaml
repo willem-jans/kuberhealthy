@@ -1,0 +1,25 @@
+---
+apiVersion: comcast.github.io/v1
+kind: KuberhealthyCheck
+metadata:
+  name: node
+  namespace: kuberhealthy
+spec:
+  runInterval: 3m
+  timeout: 5m
+  podSpec:
+    containers:
+    - name: node
+      image: kuberhealthy/node-check:v0.0.1
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: NODE_SELECTOR
+          # value: "4"
+      resources:
+        requests:
+          cpu: 25m
+          memory: 15Mi
+        limits:
+          cpu: 1
+      restartPolicy: Never
+    terminationGracePeriodSeconds: 60
