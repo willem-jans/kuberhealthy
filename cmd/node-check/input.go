@@ -67,6 +67,22 @@ func parseInputValues() {
 	}
 	log.Infoln("Performing check in", checkNamespace, "namespace.")
 
+	// Parse incoming check pod container image inputs
+	checkImage = defaultCheckImage
+	if len(checkImageEnv) > 0 {
+		checkImage = checkImageEnv
+		log.Infoln("Parsed CHECK_IMAGE:", checkImage)
+	}
+
+	// Parse concurrency flag; the flag is already defined as `true`.
+	if len(concurrentEnv) != 0 {
+		concurrent, err := strconv.ParseBool(concurrentEnv)
+		if err != nil {
+			log.Fatalln("Failed to parse CONCURRENT environment variable:", err.Error())
+		}
+		log.Infoln("Parsed CONCURRENT:", concurrent)
+	}
+
 	// // Parse incpoming deployment tolerations
 	// if len(checkDeploymentTolerationsEnv) > 0 {
 	// 	splitEnvVars := strings.Split(checkDeploymentTolerationsEnv, ",")
@@ -156,50 +172,50 @@ func parseInputValues() {
 	// 	log.Infoln("Parsed NODE_SELECTOR:", checkNodeSelectors)
 	// }
 
-	// // Parse incoming check pod resource requests and limits
-	// // Calculated in decimal SI units (15 = 15m cpu).
-	// millicoreRequest = defaultMillicoreRequest
-	// if len(millicoreRequestEnv) != 0 {
-	// 	cpuRequest, err := strconv.ParseInt(millicoreRequestEnv, 10, 64)
-	// 	if err != nil {
-	// 		log.Fatalln("error occurred attempting to parse CHECK_POD_CPU_REQUEST:", err)
-	// 	}
-	// 	millicoreRequest = int(cpuRequest)
-	// 	log.Infoln("Parsed CHECK_POD_CPU_REQUEST:", millicoreRequest)
-	// }
+	// Parse incoming check pod resource requests and limits
+	// Calculated in decimal SI units (15 = 15m cpu).
+	millicoreRequest = defaultMillicoreRequest
+	if len(millicoreRequestEnv) != 0 {
+		cpuRequest, err := strconv.ParseInt(millicoreRequestEnv, 10, 64)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_POD_CPU_REQUEST:", err)
+		}
+		millicoreRequest = int(cpuRequest)
+		log.Infoln("Parsed CHECK_POD_CPU_REQUEST:", millicoreRequest)
+	}
 
-	// // Calculated in decimal SI units (75 = 75m cpu).
-	// millicoreLimit = defaultMillicoreLimit
-	// if len(millicoreLimitEnv) != 0 {
-	// 	cpuLimit, err := strconv.ParseInt(millicoreLimitEnv, 10, 64)
-	// 	if err != nil {
-	// 		log.Fatalln("error occurred attempting to parse CHECK_POD_CPU_LIMIT:", err)
-	// 	}
-	// 	millicoreLimit = int(cpuLimit)
-	// 	log.Infoln("Parsed CHECK_POD_CPU_LIMIT:", millicoreLimit)
-	// }
+	// Calculated in decimal SI units (75 = 75m cpu).
+	millicoreLimit = defaultMillicoreLimit
+	if len(millicoreLimitEnv) != 0 {
+		cpuLimit, err := strconv.ParseInt(millicoreLimitEnv, 10, 64)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_POD_CPU_LIMIT:", err)
+		}
+		millicoreLimit = int(cpuLimit)
+		log.Infoln("Parsed CHECK_POD_CPU_LIMIT:", millicoreLimit)
+	}
 
-	// // Calculated in binary SI units (20 * 1024^2 = 20Mi memory).
-	// memoryRequest = defaultMemoryRequest
-	// if len(memoryRequestEnv) != 0 {
-	// 	memRequest, err := strconv.ParseInt(memoryRequestEnv, 10, 64)
-	// 	if err != nil {
-	// 		log.Fatalln("error occurred attempting to parse CHECK_POD_MEM_REQUEST:", err)
-	// 	}
-	// 	memoryRequest = int(memRequest) * 1024 * 1024
-	// 	log.Infoln("Parsed CHECK_POD_MEM_REQUEST:", memoryRequest)
-	// }
+	// Calculated in binary SI units (20 * 1024^2 = 20Mi memory).
+	memoryRequest = defaultMemoryRequest
+	if len(memoryRequestEnv) != 0 {
+		memRequest, err := strconv.ParseInt(memoryRequestEnv, 10, 64)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_POD_MEM_REQUEST:", err)
+		}
+		memoryRequest = int(memRequest) * 1024 * 1024
+		log.Infoln("Parsed CHECK_POD_MEM_REQUEST:", memoryRequest)
+	}
 
-	// // Calculated in binary SI units (75 * 1024^2 = 75Mi memory).
-	// memoryLimit = defaultMemoryLimit
-	// if len(memoryLimitEnv) != 0 {
-	// 	memLimit, err := strconv.ParseInt(memoryLimitEnv, 10, 64)
-	// 	if err != nil {
-	// 		log.Fatalln("error occurred attempting to parse CHECK_POD_MEM_LIMIT:", err)
-	// 	}
-	// 	memoryLimit = int(memLimit) * 1024 * 1024
-	// 	log.Infoln("Parsed CHECK_POD_MEM_LIMIT:", memoryLimit)
-	// }
+	// Calculated in binary SI units (75 * 1024^2 = 75Mi memory).
+	memoryLimit = defaultMemoryLimit
+	if len(memoryLimitEnv) != 0 {
+		memLimit, err := strconv.ParseInt(memoryLimitEnv, 10, 64)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_POD_MEM_LIMIT:", err)
+		}
+		memoryLimit = int(memLimit) * 1024 * 1024
+		log.Infoln("Parsed CHECK_POD_MEM_LIMIT:", memoryLimit)
+	}
 
 	// Set check time limit to default
 	checkTimeLimit = defaultCheckTimeLimit

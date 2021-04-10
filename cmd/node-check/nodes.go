@@ -148,18 +148,18 @@ func listUnschedulableNodes(ctx context.Context) chan NodeListResult {
 // targetable nodes that are schedulable (this ignores `Unschedulable` nodes and
 // `Cordoned` nodes).
 // Returns a list of targetable, schedulable nodes.
-func removeUnscheduableNodes(nodes, nodesToRemove []v1.Node) []v1.Node {
+func removeUnscheduableNodes(nodes, nodesToRemove *[]v1.Node) []v1.Node {
 	schedualableNodes := make([]v1.Node, 0)
 
 	// Look through the list of targted nodes and remove any that are present in the
 	// list of nodse to remove.
-	for _, n := range nodes {
-		if !containsNodeName(nodesToRemove, n) {
+	for _, n := range *nodes {
+		if !containsNodeName(*nodesToRemove, n) {
 			schedualableNodes = append(schedualableNodes, n)
 		}
 	}
 
-	log.Debugln("Removed", len(nodes)-len(schedualableNodes), "nodes from the list of targets.")
+	log.Debugln("Removed", len(*nodes)-len(schedualableNodes), "nodes from the list of targets.")
 
 	return schedualableNodes
 }
@@ -173,4 +173,14 @@ func containsNodeName(list []v1.Node, node v1.Node) bool {
 		}
 	}
 	return false
+}
+
+// findNodeInSlice looks for a specified node in a slice based on a given name and returns it.
+func findNodeInSlice(nodes []v1.Node, nodeName string) *v1.Node {
+	for _, node := range nodes {
+		if node.GetName() == nodeName {
+			return &node
+		}
+	}
+	return nil
 }

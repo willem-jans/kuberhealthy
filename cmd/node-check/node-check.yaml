@@ -10,11 +10,11 @@ spec:
   podSpec:
     containers:
     - name: node
-      image: kuberhealthy/node-check:v0.0.7
+      image: kuberhealthy/node-check:v0.0.8
       imagePullPolicy: Always # Change to IfNotPresent
       env:
       - name: NODE_SELECTOR
-        value: "dedicated=kuberhealthy" #"beta.kubernetes.io/instance-type=c5.4xlarge" #,kubernetes.io/hostname:ip-10-112-140-38.us-west-2.compute.internal" #kops.k8s.io/instancegroup=c-nodes,beta.kubernetes.io/os=linux
+        value: "beta.kubernetes.io/instance-type=c5.4xlarge" #"dedicated=kuberhealthy" #,kubernetes.io/hostname:ip-10-112-140-38.us-west-2.compute.internal" #kops.k8s.io/instancegroup=c-nodes,beta.kubernetes.io/os=linux
       - name: DEBUG
         value: "true"
       resources:

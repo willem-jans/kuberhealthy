@@ -13,13 +13,26 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
-
 	nodeCheck "github.com/Comcast/kuberhealthy/v2/pkg/checks/external/nodeCheck"
+	log "github.com/sirupsen/logrus"
+
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// Check result represents the result of applying a pod to a node and its cleanup process.
+type CheckInfo struct {
+	Errors   []error
+	OK       bool
+	Node     *v1.Node
+	NodeName string
+	Pod      *v1.Pod
+	PodName  string
+}
 
 // runNodeCheck applies a pod specification to each targeted node in the cluster.
 // Determines which nodes are targeted for this check via environment variables for
@@ -65,7 +78,7 @@ func runNodeCheck(ctx context.Context) {
 		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
-	log.Debugln("Found", len(nodeList.NodeList), "targeted nodes.")
+	log.Infoln("Found", len(nodeList.NodeList), "targeted nodes.")
 
 	// List unschedulable nodes to skip.
 	var unschedulableNodeList NodeListResult
@@ -75,7 +88,7 @@ func runNodeCheck(ctx context.Context) {
 		if unschedulableNodeList.Err != nil {
 			log.Errorln("error when listing unschedulable nodes:", unschedulableNodeList.Err)
 			reportOKToKuberhealthy()
-			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+			// reportErrorsToKuberhealthy([]string{unschedulableNodeList.Err.Error()})
 			return
 		}
 	case <-ctx.Done():
@@ -90,20 +103,38 @@ func runNodeCheck(ctx context.Context) {
 		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
-	log.Debugln("Found", len(unschedulableNodeList.NodeList), "targeted nodes.")
+	log.Infoln("Found", len(unschedulableNodeList.NodeList), "unschedulable nodes.")
 
 	// Trim the unschedaluable nodes from the list of targeted nodes.
-	targetedNodes := removeUnscheduableNodes(nodeList.NodeList, unschedulableNodeList.NodeList)
+	targetedNodes := removeUnscheduableNodes(&nodeList.NodeList, &unschedulableNodeList.NodeList)
+	log.Infoln("There are now", len(targetedNodes), "targets after removing unschedulable candidates.")
 
 	// Create pod specs for each targeted node.
-	var podSpecs []corev1.Pod
+	podSpecs := createPodSpecs(targetedNodes)
+	if len(podSpecs) == 0 {
+		// If there are no pod specifications to run for this check -- there is no work to do.
+		// This could be both an error and a success case depending on the situation. . .
+		log.Warnln("Produced an empty list of pod specifications for the check. Please check your inputs.")
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+		return
+	}
+	log.Infoln("Created", len(podSpecs), "pod specifications for nodes.")
+
+	// Warn users that there is a discrepancy between the number of targeted nodes and the number
+	// of created pod specs.
+	if len(podSpecs) != len(targetedNodes) {
+		log.Warnln("The number of created pod specifications and targeted nodes do not match. Targeted nodes:", len(targetedNodes), "Pods to create:", len(podSpecs))
+	}
+
+	// Make a list of test that are going to be run for this check.
+	var checkTests []CheckInfo
 	select {
-	case podSpecs = <-createPodSpecs(ctx, targetedNodes):
-		// Report node listing errors.
-		if nodeListResult.Err != nil {
-			log.Errorln("error when listing targeted or qualifying nodes:", nodeListResult.Err)
+	case err := <-populateCheckTests(&checkTests, targetedNodes, podSpecs):
+		if err != nil {
+			log.Errorln("failed to populate tests for this check:", err)
 			reportOKToKuberhealthy()
-			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+			// reportErrorsToKuberhealthy([]string{err.Error()})
 			return
 		}
 	case <-ctx.Done():
@@ -119,213 +150,58 @@ func runNodeCheck(ctx context.Context) {
 		return
 	}
 
-	// Create workers that will watch the successful deployment of pods to
-	// targeted nodes.
+	// Deploy each pod spec to the cluster.
+	var checkResults []CheckInfo
+	select {
+	case checkResults = <-executeNodeCheck(ctx, &checkTests):
+		// Report node listing errors.
+		if nodeList.Err != nil {
+			log.Errorln("error when listing targeted or qualifying nodes:", nodeList.Err)
+			reportOKToKuberhealthy()
+			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+			return
+		}
+		// Exit the check if the slice of resulting nodes is empty.
+		if len(nodeList.NodeList) == 0 {
+			log.Infoln("There were no qualifying target nodes found within the cluster.")
+			reportOKToKuberhealthy()
+			return
+		}
+	case <-ctx.Done():
+		// If there is a cancellation interrupt signal.
+		log.Infoln("Canceling node target listing and shutting down from interrupt.")
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+		return
+	case <-runTimeout:
+		// If creating a deployment took too long, exit.
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+		return
+	}
 
-	// // Init a timeout for cleaning up the check.  Assume that the check should not take more than 2m.
-	// cleanupTimeout := time.After(time.Minute * 2)
+	// Create a report for kuberhealthy.
+	var report []string
+	select {
+	case report = <-createKuberhealthyReport(&checkResults):
+	case <-ctx.Done():
+		// If there is a cancellation interrupt signal.
+		log.Infoln("Canceling node target listing and shutting down from interrupt.")
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+		return
+	case <-runTimeout:
+		// If creating a deployment took too long, exit.
+		reportOKToKuberhealthy()
+		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+		return
+	}
 
-	// select {
-	// case err := <-cleanUpOrphanedResources(ctx):
-	// 	// If the clean up completes with errors, we report those and stop the check cleanly.
-	// 	if err != nil {
-	// 		log.Errorln("error when cleaning up resources:", err)
-	// 		reportErrorsToKuberhealthy([]string{err.Error()})
-	// 		return
-	// 	}
-	// 	log.Infoln("Successfully cleaned up prior check resources.")
-	// case <-ctx.Done():
-	// 	// If there is a cancellation interrupt signal.
-	// 	log.Infoln("Canceling cleanup and shutting down from interrupt.")
-	// 	reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
-	// 	return
-	// case <-cleanupTimeout:
-	// 	// If the clean up took too long, exit.
-	// 	reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
-	// 	return
-	// }
-
-	// // Create a deployment resource.
-	// deploymentConfig := createDeploymentConfig(checkImageURL)
-	// log.Infoln("Created deployment resource.")
-
-	// // Apply the deployment struct manifest to the cluster.
-	// var deploymentResult DeploymentResult
-	// select {
-	// case deploymentResult = <-createDeployment(ctx, deploymentConfig):
-	// 	// Handle errors when the deployment creation process completes.
-	// 	if deploymentResult.Err != nil {
-	// 		log.Errorln("error occurred creating deployment in cluster:", deploymentResult.Err)
-	// 		reportErrorsToKuberhealthy([]string{deploymentResult.Err.Error()})
-	// 		return
-	// 	}
-	// 	// Continue with the check if there is no error.
-	// 	log.Infoln("Created deployment in", deploymentResult.Deployment.Namespace, "namespace:", deploymentResult.Deployment.Name)
-	// case <-ctx.Done():
-	// 	// If there is a cancellation interrupt signal.
-	// 	log.Infoln("Cancelling check and shutting down due to interrupt.")
-	// 	reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
-	// 	return
-	// case <-runTimeout:
-	// 	// If creating a deployment took too long, exit.
-	// 	reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
-	// 	return
-	// }
-
-	// // Create a service resource.
-	// serviceConfig := createServiceConfig(deploymentResult.Deployment.Spec.Template.Labels)
-	// log.Infoln("Created service resource.")
-
-	// // Apply the service struct manifest to the cluster.
-	// var serviceResult ServiceResult
-	// select {
-	// case serviceResult = <-createService(ctx, serviceConfig):
-	// 	// Handle errors when the service creation process completes.
-	// 	if serviceResult.Err != nil {
-	// 		log.Errorln("error occurred creating service in cluster:", serviceResult.Err)
-	// 		errorReport := []string{serviceResult.Err.Error()} // Make a slice for errors here, because tehre can be more than 1 error.
-	// 		// Clean up the check. A deployment and service was brought up, but could not get a 200 OK from requests.
-	// 		cleanUpError := cleanUp(ctx)
-	// 		if cleanUpError != nil {
-	// 			errorReport = append(errorReport, cleanUpError.Error())
-	// 		}
-	// 		reportErrorsToKuberhealthy(errorReport)
-	// 		return
-	// 	}
-	// 	// Continue with the check if there is no error.
-	// 	log.Infoln("Created service in", serviceResult.Service.ObjectMeta.Namespace, "namespace:", serviceResult.Service.ObjectMeta.Name)
-	// case <-ctx.Done():
-	// 	// If there is a cancellation interrupt signal, exit.
-	// 	log.Infoln("Cancelling check and shutting down due to interrupt.")
-	// 	reportErrorsToKuberhealthy([]string{"failed to create service within timeout"})
-	// 	return
-	// case <-runTimeout:
-	// 	// If creating a service took too long, exit.
-	// 	reportErrorsToKuberhealthy([]string{"failed to create service within timeout"})
-	// 	return
-	// }
-
-	// ipAddress := getServiceClusterIP(ctx)
-	// if len(ipAddress) == 0 {
-	// 	// If the retrieved address is empty or nil, clean up and exit.
-	// 	log.Infoln("Cleaning up check and exiting because the cluster IP is nil: ", ipAddress)
-	// 	errorReport := []string{} // Make a slice for errors here, because there can be more than 1 error.
-	// 	// Clean up the check. A deployment was brought up, but no ingress was created.
-	// 	cleanUpError := cleanUp(ctx)
-	// 	if cleanUpError != nil {
-	// 		errorReport = append(errorReport, cleanUpError.Error())
-	// 	}
-	// 	// hostnameError := fmt.Errorf("service load balancer ingress hostname is nil: %s", hostname)
-	// 	addressError := fmt.Errorf("service cluster IP address is nil: %s", ipAddress)
-	// 	// Report errors to Kuberhealthy and exit.
-	// 	errorReport = append(errorReport, addressError.Error())
-	// 	reportErrorsToKuberhealthy(errorReport)
-	// 	return
-	// }
-
-	// // Make an HTTP request to the load balancer for the service at the external IP address.
-	// // Utilize a backoff loop for the request, the hostname needs to be allotted enough time
-	// // for the hostname to resolve and come up.
-	// select {
-	// case err := <-makeRequestToDeploymentCheckService(ctx, ipAddress):
-	// 	if err != nil {
-	// 		// Handle errors when the HTTP request process completes.
-	// 		log.Errorln("error occurred making request to service in cluster:", err)
-	// 		errorReport := []string{err.Error()} // Make a slice for errors here, because tehre can be more than 1 error.
-	// 		// Clean up the check. A deployment and service was brought up, but could not get a 200 OK from requests.
-	// 		cleanUpError := cleanUp(ctx)
-	// 		if cleanUpError != nil {
-	// 			errorReport = append(errorReport, cleanUpError.Error())
-	// 		}
-	// 		reportErrorsToKuberhealthy(errorReport)
-	// 		return
-	// 	}
-	// 	// Continue with the check if there is no error.
-	// 	log.Infoln("Successfully hit service endpoint.")
-	// case <-ctx.Done():
-	// 	// If there is a cancellation interrupt signal, exit.
-	// 	log.Infoln("Cancelling check and shutting down due to interrupt.")
-	// 	reportErrorsToKuberhealthy([]string{"failed to make http request to the deployment service cluster IP at " + ipAddress + " within timeout"})
-	// 	return
-	// case <-runTimeout:
-	// 	// If requests to the hostname endpoint for a status code of 200 took too long, exit.
-	// 	reportErrorsToKuberhealthy([]string{"failed to make http request to the deployment service cluster IP at " + ipAddress + " within timeout"})
-	// 	return
-	// }
-
-	// // If a rolling update is enabled, perform a rolling update on the service.
-	// if rollingUpdate {
-
-	// 	log.Infoln("Rolling update option is enabled. Performing roll.")
-
-	// 	// Create a rolling-update deployment resource.
-	// 	rolledUpdateConfig := createDeploymentConfig(checkImageURLB)
-	// 	log.Infoln("Created rolling-update deployment resource.")
-
-	// 	// Apply the deployment struct manifest to the cluster.
-	// 	var updateDeploymentResult DeploymentResult
-	// 	select {
-	// 	case updateDeploymentResult = <-updateDeployment(ctx, rolledUpdateConfig):
-	// 		// Handle errors when the deployment creation process completes.
-	// 		if updateDeploymentResult.Err != nil {
-	// 			log.Errorln("error occurred applying rolling-update to deployment in cluster:", updateDeploymentResult.Err)
-	// 			errorReport := []string{updateDeploymentResult.Err.Error()} // Make a slice for errors here, because tehre can be more than 1 error.
-	// 			// Clean up the check. A deployment and service was brought up, but could not get a 200 OK from requests.
-	// 			cleanUpError := cleanUp(ctx)
-	// 			if cleanUpError != nil {
-	// 				errorReport = append(errorReport, cleanUpError.Error())
-	// 			}
-	// 			reportErrorsToKuberhealthy(errorReport)
-	// 			return
-	// 		}
-	// 		// Continue with the check if there is no error.
-	// 		log.Infoln("Rolled deployment in", updateDeploymentResult.Deployment.Namespace, "namespace:", updateDeploymentResult.Deployment.Name)
-	// 	case <-ctx.Done():
-	// 		// If there is a cancellation interrupt signal.
-	// 		log.Infoln("Cancelling check and shutting down due to interrupt.")
-	// 		reportErrorsToKuberhealthy([]string{"failed to update deployment " + deploymentResult.Deployment.Name + " within timeout"})
-	// 		return
-	// 	case <-runTimeout:
-	// 		// If creating a deployment took too long, exit.
-	// 		reportErrorsToKuberhealthy([]string{"failed to update deployment " + deploymentResult.Deployment.Name + " within timeout"})
-	// 		return
-	// 	}
-
-	// 	// Hit the service again, looking for a 200.
-	// 	select {
-	// 	case err := <-makeRequestToDeploymentCheckService(ctx, ipAddress):
-	// 		// Handle errors when the HTTP request process completes.
-	// 		if err != nil {
-	// 			log.Errorln("error occurred creating service in cluster:", err)
-	// 			errorReport := []string{err.Error()} // Make a slice for errors here, because tehre can be more than 1 error.
-	// 			// Clean up the check. A deployment and service was brought up, but could not get a 200 OK from requests.
-	// 			cleanUpError := cleanUp(ctx)
-	// 			if cleanUpError != nil {
-	// 				errorReport = append(errorReport, cleanUpError.Error())
-	// 			}
-	// 			reportErrorsToKuberhealthy(errorReport)
-	// 			return
-	// 		}
-	// 		// Continue with the check if there is no error.
-	// 		log.Infoln("Successfully hit service endpoint after rolling-update.")
-	// 	case <-ctx.Done():
-	// 		// If there is a cancellation interrupt signal, exit.
-	// 		log.Infoln("Cancelling check and shutting down due to interrupt.")
-	// 		reportErrorsToKuberhealthy([]string{"failed to make http request to the deployment service cluster IP at " + ipAddress + " within timeout"})
-	// 		return
-	// 	case <-runTimeout:
-	// 		// If requests to the hostname endpoint for a status code of 200 took too long, exit.
-	// 		reportErrorsToKuberhealthy([]string{"failed to make http request to the deployment service cluster IP at " + ipAddress + " within timeout"})
-	// 		return
-	// 	}
-	// }
-
-	// // Clean up!
-	// cleanUpError := cleanUp(ctx)
-	// if cleanUpError != nil {
-	// 	reportErrorsToKuberhealthy([]string{cleanUpError.Error()})
-	// }
 	// Report to Kuberhealthy.
+	if len(report) != 0 {
+		reportErrorsToKuberhealthy(report)
+		return
+	}
 	reportOKToKuberhealthy()
 }
 
@@ -368,6 +244,204 @@ func runNodeCheck(ctx context.Context) {
 // 	return resultErr
 // }
 
+// populateCheckTests fills a slice of CheckResults with test information
+// before the check (no results yet).
+func populateCheckTests(checks *[]CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) chan interface{} {
+	completeChan := make(chan interface{})
+
+	go func() {
+		defer close(completeChan)
+
+		// Apply pod specifications one at a time.
+		for _, podSpec := range podSpecs {
+
+			// Treat each pod specification as it's own check / test.
+			// Add pod information
+			check := CheckInfo{
+				Errors:  make([]error, 0),
+				Pod:     &podSpec,
+				PodName: podSpec.GetName(),
+			}
+
+			// Find the node that the pod is assigned to be scheduled on
+			node := findNodeInSlice(nodes, podSpec.Spec.NodeName)
+			if node == nil {
+				err := fmt.Errorf("unable to find targeted node for pod %s", podSpec.Name)
+				check.Errors = append(check.Errors, err)
+			}
+			check.Node = node
+			check.NodeName = node.GetName()
+
+			*checks = append(*checks, check)
+		}
+
+		completeChan <- struct{}{}
+
+		return
+	}()
+
+	return completeChan
+}
+
+// executeNodeCheck executes the deployment of pod specifications to nodes.
+func executeNodeCheck(ctx context.Context, checks *[]CheckInfo) chan []CheckInfo {
+
+	// Make a slice for the overall check results.
+	results := make([]CheckInfo, 0)
+
+	// Make a channel for overall check results.
+	checkResults := make(chan []CheckInfo)
+
+	// Make a channel to read check results from while running the check.
+	checkResultProcessingChan := make(chan CheckInfo)
+
+	go func() {
+		defer close(checkResults)
+		defer close(checkResultProcessingChan)
+
+		// Perform the check concurrently
+		wg := sync.WaitGroup{}
+		for _, check := range *checks {
+			w := NewWorker(check)
+			wg.Add(1)
+			go w.PerformCheck(ctx, checkResultProcessingChan, &wg)
+		}
+
+		for result := range checkResultProcessingChan {
+			results = append(results, result)
+		}
+
+		wg.Wait()
+
+		checkResults <- results
+
+		return
+	}()
+
+	return checkResults
+}
+
+// checkNodesConcurrently executes the deployment of pod specifications to nodes concurrently.
+func checkNodesConcurrently(ctx context.Context, resultChan chan []CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) {
+	results := make([]CheckInfo, 0)
+	wg := sync.WaitGroup{}
+
+	for _, _ = range nodes {
+		wg.Add(1)
+		// go
+	}
+
+	resultChan <- results
+}
+
+// checkNodes executes the deployment of pod specifications linearly. (One at a time)
+func checkNodes(ctx context.Context, resultChan chan []CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) {
+	results := make([]CheckInfo, 0)
+
+	// Apply pod specifications one at a time.
+	for _, podSpec := range podSpecs {
+
+		// Treat each pod specification as it's own check / test.
+		// Add pod information
+		checkResult := CheckInfo{
+			Errors:  make([]error, 0),
+			Pod:     &podSpec,
+			PodName: podSpec.GetName(),
+		}
+
+		// Find the node that the pod is assigned to be scheduled on
+		node := findNodeInSlice(nodes, podSpec.Spec.NodeName)
+		if node == nil {
+			err := fmt.Errorf("unable to find targeted node for pod %s", podSpec.Name)
+			checkResult.Errors = append(checkResult.Errors, err)
+		}
+		checkResult.Node = node
+		checkResult.NodeName = node.GetName()
+
+		// Deploy the pod to the node
+		pod, err := deployPodToNode(ctx, &podSpec, node)
+		if err != nil {
+			log.Errorln("failed to deploy pod", (*pod).Name, "to", node.Name)
+			checkResult.Errors = append(checkResult.Errors, err)
+		}
+		checkResult.Pod = pod
+
+		// Watch the pod and make sure it comes up.
+		err = watchPodOnNode(ctx, checkResult.Pod, checkResult.Node)
+		if err != nil {
+			log.Errorln("failed to watch pod", checkResult.PodName, "come online on node", checkResult.NodeName)
+			checkResult.Errors = append(checkResult.Errors, err)
+		}
+
+		// Delete the pod from the node
+		err = deletePodFromNode(ctx, checkResult.Pod, checkResult.Node)
+		if err != nil {
+			log.Errorln("failed to delete pod", checkResult.PodName, "from node", checkResult.NodeName)
+			checkResult.Errors = append(checkResult.Errors, err)
+		}
+
+		results = append(results, checkResult)
+	}
+
+	resultChan <- results
+}
+
+// watchPod watches for a pod to reach `Running` state on a node.
+func watchPod(ctx context.Context, pod *v1.Pod) error {
+
+	// Watch that the pod comes online
+	watch, err := client.CoreV1().Pods(checkNamespace).Watch(ctx, metav1.ListOptions{
+		Watch:         true,
+		FieldSelector: "metadata.name=" + (*pod).Name,
+	})
+	if err != nil {
+		log.Warnln("Failed to create a watch client on pod", (*pod).Name+":", err)
+		return err
+	}
+
+	defer watch.Stop()
+
+	for event := range watch.ResultChan() {
+		kind := event.Object.DeepCopyObject().GetObjectKind().GroupVersionKind()
+		if kind.Kind != "Pod" {
+			log.Infoln("Got a watch event for a non-pod object.")
+			log.Debugln(kind)
+			continue
+		}
+
+		p, ok := event.Object.(*v1.Pod)
+		if !ok {
+			log.Infoln("Got a watch event for a non-pod object.")
+			continue
+		}
+
+		if p.Status.Phase == v1.PodRunning {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// deletePodFromNode removes a pod from a node.
+func deletePodFromNode(ctx context.Context, pod *v1.Pod, node *v1.Node) error {
+	err := client.CoreV1().Pods(checkNamespace).Delete(ctx, (*pod).Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Debugln("failed to delete pod", (*pod).Name, "on node", (*node).Name+":", err.Error())
+	}
+	return err
+}
+
+// deployPodToNode deploys a given pod to a given node.
+func deployPodToNode(ctx context.Context, pod *v1.Pod, node *v1.Node) (*v1.Pod, error) {
+	p, err := client.CoreV1().Pods(checkNamespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		log.Debugln("failed to create pod", (*pod).Name, "on node", (*node).Name+":", err.Error())
+		return nil, err
+	}
+	return p, nil
+}
+
 // cleanUpOrphanedResources cleans up previous deployment and services and ensures
 // a clean slate before beginning a deployment and service check.
 func cleanUpOrphanedResources(ctx context.Context) chan error {
@@ -409,6 +483,31 @@ func cleanUpOrphanedResources(ctx context.Context) chan error {
 	}()
 
 	return cleanUpChan
+}
+
+// createKuberhealthyReport creates and returns a report of errors from this check.
+func createKuberhealthyReport(results *[]CheckInfo) chan []string {
+	reportChan := make(chan []string)
+
+	go func() {
+		defer close(reportChan)
+
+		report := make([]string, 0)
+
+		for _, result := range *results {
+			if len(result.Errors) != 0 {
+				for _, err := range result.Errors {
+					report = append(report, err.Error())
+				}
+			}
+		}
+
+		reportChan <- report
+
+		return
+	}()
+
+	return reportChan
 }
 
 // waitForNodeToJoin waits for the node to join the worker pool.

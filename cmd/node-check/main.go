@@ -38,15 +38,15 @@ var (
 	checkNamespaceEnv = os.Getenv("CHECK_NAMESPACE")
 	checkNamespace    string
 
-	// // Toleration values for the deployment check
-	// checkDeploymentTolerationsEnv = os.Getenv("TOLERATIONS")
-	// checkDeploymentTolerations    []apiv1.Toleration
+	// The image that the deployment will use
+	checkImageEnv = os.Getenv("CHECK_IMAGE")
+	checkImage    string
 
 	// Node selectors for the deployment check
 	checkNodeSelectorsEnv = os.Getenv("NODE_SELECTOR")
 	// checkNodeSelectors    = make(map[string]string)
 
-	// Deployment pod resource requests and limits.
+	// Pod resource requests and limits.
 	millicoreRequestEnv = os.Getenv("CHECK_POD_CPU_REQUEST")
 	millicoreRequest    int
 
@@ -59,12 +59,12 @@ var (
 	memoryLimitEnv = os.Getenv("CHECK_POD_MEM_LIMIT")
 	memoryLimit    int
 
+	// Boolean flag to determine whether the check runs concurrently
+	concurrentEnv = os.Getenv("CONCURRENT")
+	concurrent    = true
+
 	// Check time limit.
 	checkTimeLimit time.Duration
-
-	// // Additional container environment variables if a custom image is used for the deployment.
-	// additionalEnvVarsEnv = os.Getenv("ADDITIONAL_ENV_VARS")
-	// additionalEnvVars    = make(map[string]string)
 
 	// Seconds allowed for the shutdown process to complete.
 	shutdownGracePeriodEnv = os.Getenv("SHUTDOWN_GRACE_PERIOD")
@@ -91,13 +91,23 @@ var (
 
 const (
 	// Default check pod name prefix.
-	defaultCheckName = "node-check"
+	defaultCheckName = "node"
 
-	// Default container name.
-	defaultCheckContainerName = "pause"
+	// Default check pod labels.
+	defaultCheckLabelKey       = "node-timestamp"
+	defaultCheckLabelValueBase = "unix-"
 
 	// Default namespace for the check to run in.
 	defaultCheckNamespace = "kuberhealthy"
+
+	// Default container resource requests values.
+	defaultMillicoreRequest = 10               // Calculated in decimal SI units (15 = 15m cpu).
+	defaultMillicoreLimit   = 30               // Calculated in decimal SI units (75 = 75m cpu).
+	defaultMemoryRequest    = 10 * 1024 * 1024 // Calculated in binary SI units (20 * 1024^2 = 20Mi memory).
+	defaultMemoryLimit      = 30 * 1024 * 1024 // Calculated in binary SI units (75 * 1024^2 = 75Mi memory).
+
+	// Default check pod image.
+	defaultCheckImage = "gcr.io/google-containers/pause:3.1"
 
 	defaultCheckTimeLimit      = time.Duration(time.Minute * 15)
 	defaultShutdownGracePeriod = time.Duration(time.Second * 30) // grace period for the check to shutdown after receiving a shutdown signal
