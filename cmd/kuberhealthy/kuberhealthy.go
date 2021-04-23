@@ -1320,7 +1320,7 @@ func (k *Kuberhealthy) externalCheckReportHandler(w http.ResponseWriter, r *http
 		}
 	}
 
-	// Validate using pod's remote IP
+	// If the check uuid header is missing, attempt to validate using calling pod's source IP
 	if !reportValidated {
 		k.externalCheckReportHandlerLog(requestID, "validating external check status report from the pod's remote IP:", r.RemoteAddr)
 
