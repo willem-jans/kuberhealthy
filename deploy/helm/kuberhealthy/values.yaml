@@ -32,7 +32,7 @@ imageRegistry: {}
 image:
   registry: kuberhealthy
   repository: kuberhealthy
-  tag: v2.4.0
+  tag: v2.4.1
 
 resources:
   requests:
@@ -192,7 +192,8 @@ check:
     image:
       registry: kuberhealthy
       repository: pod-restarts-check
-      tag: v2.3.3
+      tag: v2.4.0
+    allNamespaces: false
     extraEnvs:
       MAX_FAILURES_ALLOWED: "10"
     nodeSelector: {}
@@ -212,7 +213,7 @@ check:
     image:
       registry: kuberhealthy
       repository: pod-status-check
-      tag: v1.2.4
+      tag: v1.2.5
     allNamespaces: false
     extraEnvs:
     nodeSelector: {}
