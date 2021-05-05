@@ -44,7 +44,10 @@ var (
 
 	// Node selectors for the deployment check
 	checkNodeSelectorsEnv = os.Getenv("NODE_SELECTOR")
-	// checkNodeSelectors    = make(map[string]string)
+
+	// Pod time to live (how long to wait after a pod is running before deleting it). [In seconds]
+	podTTLSecondsEnv = os.Getenv("CHECK_TTL_SECONDS")
+	podTTLSeconds    time.Duration
 
 	// Pod resource requests and limits.
 	millicoreRequestEnv = os.Getenv("CHECK_POD_CPU_REQUEST")
@@ -66,6 +69,11 @@ var (
 	// Check time limit.
 	checkTimeLimit time.Duration
 
+	// Check workers interlude maximum in seconds.
+	// Used to prevent DDOSing your own cluster.
+	workerInterludeEnv = os.Getenv("CHECK_WORKER_INTERLUDE")
+	workerInterlude    int64
+
 	// Seconds allowed for the shutdown process to complete.
 	shutdownGracePeriodEnv = os.Getenv("SHUTDOWN_GRACE_PERIOD")
 	shutdownGracePeriod    time.Duration
@@ -78,7 +86,6 @@ var (
 
 	// Interrupt signal channels.
 	signalChan chan os.Signal
-	// doneChan   chan bool
 
 	debugEnv = os.Getenv("DEBUG")
 	debug    bool
@@ -101,15 +108,18 @@ const (
 	defaultCheckNamespace = "kuberhealthy"
 
 	// Default container resource requests values.
-	defaultMillicoreRequest = 10               // Calculated in decimal SI units (15 = 15m cpu).
-	defaultMillicoreLimit   = 30               // Calculated in decimal SI units (75 = 75m cpu).
+	defaultMillicoreRequest = 30               // Calculated in decimal SI units (15 = 15m cpu).
+	defaultMillicoreLimit   = 50               // Calculated in decimal SI units (75 = 75m cpu).
 	defaultMemoryRequest    = 10 * 1024 * 1024 // Calculated in binary SI units (20 * 1024^2 = 20Mi memory).
 	defaultMemoryLimit      = 30 * 1024 * 1024 // Calculated in binary SI units (75 * 1024^2 = 75Mi memory).
 
 	// Default check pod image.
 	defaultCheckImage = "gcr.io/google-containers/pause:3.1"
 
-	defaultCheckTimeLimit      = time.Duration(time.Minute * 15)
+	// Default times.
+	defaultWorkerInterlude     = 1
+	defaultPodTTLSeconds       = time.Duration(time.Second * 5)
+	defaultCheckTimeLimit      = time.Duration(time.Hour)
 	defaultShutdownGracePeriod = time.Duration(time.Second * 30) // grace period for the check to shutdown after receiving a shutdown signal
 )
 
@@ -171,44 +181,24 @@ func listenForInterrupts(ctx context.Context, cancel context.CancelFunc) {
 
 	// Relay incoming OS interrupt signals to the signalChan.
 	signal.Notify(signalChan, os.Interrupt, os.Kill, syscall.SIGTERM, syscall.SIGINT)
-	sig := <-signalChan // This is a blocking operation -- the routine will stop here until there is something sent down the channel.
+	sig := <-signalChan
 	log.Infoln("Received an interrupt signal from the signal channel.")
 	log.Debugln("Signal received was:", sig.String())
 
 	log.Debugln("Cancelling context.")
 	cancel()
-	log.Debugln("Shutting down.")
 
 	select {
 	case sig = <-signalChan:
 		// If there is an interrupt signal, interrupt the run.
 		log.Warnln("Received a second interrupt signal from the signal channel.")
 		log.Debugln("Signal received was:", sig.String())
-	case err := <-cleanUpAndWait(ctx):
-		// If the clean up is complete, exit.
-		log.Infoln("Received a complete signal, clean up completed.")
-		if err != nil {
-			log.Errorln("failed to clean up check resources properly:", err.Error())
-		}
 	case <-time.After(time.Duration(shutdownGracePeriod)):
 		// Exit if the clean up took to long to provide a response.
 		log.Infoln("Clean up took too long to complete and timed out.")
 	}
 
 	os.Exit(0)
-}
-
-// cleanUpAndWait cleans up things and returns a signal down the returned channel when completed.
-func cleanUpAndWait(ctx context.Context) chan error {
-
-	// // Watch for the clean up process to complete.
-	// doneChan := make(chan error)
-	// go func() {
-	// 	doneChan <- cleanUp(ctx)
-	// }()
-
-	// return doneChan
-	return nil
 }
 
 // reportErrorsToKuberhealthy reports the specified errors for this check run.

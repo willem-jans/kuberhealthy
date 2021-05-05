@@ -14,10 +14,10 @@ package main
 import (
 	"strconv"
 
+	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var ()
@@ -37,18 +37,27 @@ const (
 // createPodSpecs returns a list of pods to be applied to the targeted nodes
 // in the cluster.
 // func createPodSpecs(ctx context.Context, nodes []corev1.Node) chan []corev1.Pod {
-func createPodSpecs(nodes []corev1.Node) []corev1.Pod {
-	podSpecs := make([]corev1.Pod, 0)
+func createPodSpecs(nodes []*corev1.Node) []*corev1.Pod {
+	podSpecs := make([]*corev1.Pod, 0)
 
 	for _, node := range nodes {
-		podSpecs = append(podSpecs, createPodSpec(node))
+		log.Debugln("Creating pod specification for node:", node.Name)
+		pod := createPodSpec(node)
+		// log.Debugln("Pod created with name", pod.Name, "for node", pod.Spec.NodeName)
+		podSpecs = append(podSpecs, pod)
 	}
+
+	// if debug {
+	// 	for _, p := range podSpecs {
+	// 		log.Debugln("Pod name:", p.Name, p.GetName(), "Pod node name:", p.Spec.NodeName)
+	// 	}
+	// }
 
 	return podSpecs
 }
 
 // createPodSpec returns a pod spec for the specified node.
-func createPodSpec(node corev1.Node) corev1.Pod {
+func createPodSpec(node *corev1.Node) *corev1.Pod {
 	// Make a pod.
 	pod := corev1.Pod{}
 
@@ -58,8 +67,8 @@ func createPodSpec(node corev1.Node) corev1.Pod {
 	containers = append(containers, container)
 	pod.Spec.Containers = containers
 
-	// Set the pod nodename to the name of the node (schedules the pod on that node)
-	pod.Spec.NodeName = node.GetName()
+	// Set the pod nodename to the name of the node (schedules the pod on that node
+	pod.Spec.NodeName = node.Name
 
 	// Make labels for pod and deployment.
 	labels := make(map[string]string, 0)
@@ -68,10 +77,10 @@ func createPodSpec(node corev1.Node) corev1.Pod {
 	pod.Labels = labels
 
 	// Set pod metadata.
-	pod.Name = checkName + "-" + node.ObjectMeta.Name
+	pod.SetName(checkName + "-" + node.ObjectMeta.Name)
 	pod.Namespace = checkNamespace
 
-	return pod
+	return &pod
 }
 
 // createContainerConfig returns a kubernetes container struct.
@@ -99,40 +108,6 @@ func createContainerConfig(image string) v1.Container {
 		Limits:   limits,
 	}
 
-	// Make a TCP socket for the probe handler.
-	tcpSocket := corev1.TCPSocketAction{
-		Port: intstr.IntOrString{
-			IntVal: checkContainerPort,
-			StrVal: strconv.Itoa(int(checkContainerPort)),
-		},
-	}
-
-	// Make a handler for the probes.
-	handler := corev1.Handler{
-		TCPSocket: &tcpSocket,
-	}
-
-	// Make liveness and readiness probes.
-	// Make the liveness probe here.
-	liveProbe := corev1.Probe{
-		Handler:             handler,
-		InitialDelaySeconds: defaultProbeInitialDelaySeconds,
-		TimeoutSeconds:      defaultProbeTimeoutSeconds,
-		PeriodSeconds:       defaultProbePeriodSeconds,
-		SuccessThreshold:    defaultProbeSuccessThreshold,
-		FailureThreshold:    defaultProbeFailureThreshold,
-	}
-
-	// Make the readiness probe here.
-	readyProbe := corev1.Probe{
-		Handler:             handler,
-		InitialDelaySeconds: defaultProbeInitialDelaySeconds,
-		TimeoutSeconds:      defaultProbeTimeoutSeconds,
-		PeriodSeconds:       defaultProbePeriodSeconds,
-		SuccessThreshold:    defaultProbeSuccessThreshold,
-		FailureThreshold:    defaultProbeFailureThreshold,
-	}
-
 	// Create the container.
 	return corev1.Container{
 		Name:            defaultCheckName,
@@ -140,7 +115,5 @@ func createContainerConfig(image string) v1.Container {
 		ImagePullPolicy: v1.PullIfNotPresent,
 		Ports:           containerPorts,
 		Resources:       resources,
-		LivenessProbe:   &liveProbe,
-		ReadinessProbe:  &readyProbe,
 	}
 }

@@ -19,8 +19,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	labels "k8s.io/apimachinery/pkg/labels"
 )
 
 var ()
@@ -32,11 +30,6 @@ const (
 type NodeListResult struct {
 	Err      error
 	NodeList []v1.Node
-}
-
-type NodeInfo struct {
-	Node          v1.Node
-	Unschedulable bool
 }
 
 // listTargetedNodes returns a list of targeted nodes depending on the
@@ -57,12 +50,13 @@ func listTargetedNodes(ctx context.Context) chan NodeListResult {
 		// comma-separated values ("a=x,b=y")
 		// https://github.com/kubernetes/apimachinery/issues/47
 		// https://pkg.go.dev/k8s.io/apimachinery@v0.21.0/pkg/labels#pkg-overview
-		selectors, err := labels.Parse(checkNodeSelectorsEnv)
-		if err != nil {
-			log.Errorf("failed to parse node selectors into selector structs: %v", err)
-		}
-		log.Debugln("Parsed selectors :", selectors)
+		// selectors, err := labels.Parse(checkNodeSelectorsEnv)
+		// if err != nil {
+		// 	log.Errorf("failed to parse node selectors into selector structs: %v", err)
+		// }
+		// log.Debugln("Parsed selectors:", selectors)
 
+		// Just use a single label / selector for now.
 		// List qualifying nodes for a list of targets.
 		nodeList, err := nodeClient.List(ctx, metav1.ListOptions{
 			LabelSelector: checkNodeSelectorsEnv,
@@ -78,15 +72,6 @@ func listTargetedNodes(ctx context.Context) chan NodeListResult {
 			log.Errorf("failed to list nodes in the cluster: %v\n", err)
 			nodesChan <- result
 			return
-		}
-
-		if debug {
-			log.Debugln("Nodes found:")
-			for _, n := range nodeList.Items {
-				log.Debugf("Node name:", n.Name)
-				log.Debugf("Labels:", n.Labels)
-				log.Debugf("Annotations:", n.Annotations)
-			}
 		}
 
 		// Return the list of nodes.
@@ -126,15 +111,6 @@ func listUnschedulableNodes(ctx context.Context) chan NodeListResult {
 			return
 		}
 
-		if debug {
-			log.Debugln("Nodes found:")
-			for _, n := range nodeList.Items {
-				log.Debugf("Node name:", n.Name)
-				log.Debugf("Labels:", n.Labels)
-				log.Debugf("Annotations:", n.Annotations)
-			}
-		}
-
 		// Return the list of nodes.
 		result.NodeList = nodeList.Items
 		unschedulableNodeChan <- result
@@ -148,26 +124,86 @@ func listUnschedulableNodes(ctx context.Context) chan NodeListResult {
 // targetable nodes that are schedulable (this ignores `Unschedulable` nodes and
 // `Cordoned` nodes).
 // Returns a list of targetable, schedulable nodes.
-func removeUnscheduableNodes(nodes, nodesToRemove *[]v1.Node) []v1.Node {
-	schedualableNodes := make([]v1.Node, 0)
+func removeUnscheduableNodes(nodes, nodesToRemove *[]v1.Node) *[]*v1.Node {
+	schedulableNodes := make([]*v1.Node, 0)
 
 	// Look through the list of targted nodes and remove any that are present in the
 	// list of nodse to remove.
 	for _, n := range *nodes {
-		if !containsNodeName(*nodesToRemove, n) {
-			schedualableNodes = append(schedualableNodes, n)
+		log.Debugln("Node name:", n.Name, n.GetName())
+		if !containsNodeName(*nodesToRemove, &n) {
+			log.Debugln("Got back node:", n.Name, n.GetName())
+			schedulableNodes = append(schedulableNodes, &n)
 		}
 	}
 
-	log.Debugln("Removed", len(*nodes)-len(schedualableNodes), "nodes from the list of targets.")
+	if debug {
+		log.Debugln("From removeUnscheduableNodes:")
+		log.Debugln("Targeted nodes:")
+		for _, n := range schedulableNodes {
+			log.Debugln(n.Name, n.GetName())
+		}
+	}
 
-	return schedualableNodes
+	return &schedulableNodes
+}
+
+// removeUnscheduableNodesv2 looks at a list of targetable nodes and creates a list of
+// targetable nodes that are schedulable (this ignores `Unschedulable` nodes and
+// `Cordoned` nodes).
+// Returns a list of targetable, schedulable nodes.
+func removeUnscheduableNodesv2(nodes, nodesToRemove *[]v1.Node) []v1.Node {
+	// schedulableNodes := make([]v1.Node, 0)
+
+	// // Look through the list of targted nodes and remove any that are present in the
+	// // list of nodse to remove.
+	// for _, n := range *nodes {
+	// 	log.Debugln("Node name:", n.Name, n.GetName())
+	// 	if !containsNodeName(*nodesToRemove, &n) {
+	// 		log.Debugln("Got back node:", n.Name, n.GetName())
+	// 		schedulableNodes = append(schedulableNodes, &n)
+	// 	}
+	// }
+
+	// Look through the list of targted nodes and remove any that are present in the
+	// list of nodse to remove.
+	for i, n := range *nodes {
+		// log.Debugln("Node name:", n.Name, n.GetName())
+		// if !containsNodeName(*nodesToRemove, &n) {
+		// 	schedulableNodes = append(schedulableNodes, &n)
+		// }
+		if containsNodeName(*nodesToRemove, &n) {
+			// schedulableNodes = append(schedulableNodes, &n)
+			removeNode(nodes, i)
+		}
+	}
+
+	// if debug {
+	// 	log.Debugln("From removeUnscheduableNodes:")
+	// 	log.Debugln("Targeted nodes:")
+	// 	for _, n := range *nodes {
+	// 		log.Debugln(n.Name, n.GetName())
+	// 	}
+	// }
+
+	return *nodes
+}
+
+// removeNode removes a node from the list.
+func removeNode(nodes *[]v1.Node, i int) []v1.Node {
+	log.Debugln("Removing node", (*nodes)[i].Name, "from list.")
+	(*nodes)[i] = (*nodes)[len(*nodes)-1]
+	return (*nodes)[:len(*nodes)-1]
 }
 
 // containsNodeName returns a boolean value based on whether or not a slice of strings contains
 // a string.
-func containsNodeName(list []v1.Node, node v1.Node) bool {
+func containsNodeName(list []v1.Node, node *v1.Node) bool {
+	// log.Debugln("Looking if", node.Name, "exists in list:")
+
 	for _, n := range list {
+		// log.Debugln("    ", n.Name)
+		// log.Debugf("    ", n.GetName())
 		if n.GetName() == node.GetName() {
 			return true
 		}
@@ -176,10 +212,10 @@ func containsNodeName(list []v1.Node, node v1.Node) bool {
 }
 
 // findNodeInSlice looks for a specified node in a slice based on a given name and returns it.
-func findNodeInSlice(nodes []v1.Node, nodeName string) *v1.Node {
+func findNodeInSlice(nodes []*v1.Node, nodeName string) *v1.Node {
 	for _, node := range nodes {
 		if node.GetName() == nodeName {
-			return &node
+			return node
 		}
 	}
 	return nil

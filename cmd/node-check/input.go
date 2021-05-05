@@ -83,46 +83,6 @@ func parseInputValues() {
 		log.Infoln("Parsed CONCURRENT:", concurrent)
 	}
 
-	// // Parse incpoming deployment tolerations
-	// if len(checkDeploymentTolerationsEnv) > 0 {
-	// 	splitEnvVars := strings.Split(checkDeploymentTolerationsEnv, ",")
-	// 	for _, splitEnvVarKeyValuePair := range splitEnvVars {
-	// 		parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
-	// 		if len(parsedEnvVarKeyValuePair) != 2 {
-	// 			log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
-	// 			log.Warnln("Setting operator to", corev1.TolerationOpExists)
-	// 			t := corev1.Toleration{
-	// 				Key:      parsedEnvVarKeyValuePair[0],
-	// 				Operator: corev1.TolerationOpExists,
-	// 			}
-	// 			log.Infoln("Adding toleration to deployment:", t)
-	// 			checkDeploymentTolerations = append(checkDeploymentTolerations, t)
-	// 			continue
-	// 		}
-	// 		parsedEnvVarValueEffect := strings.Split(parsedEnvVarKeyValuePair[1], ":")
-	// 		if len(parsedEnvVarValueEffect) != 2 {
-	// 			log.Warnln("Unable to parse complete toleration value and effect:", parsedEnvVarValueEffect)
-	// 			t := corev1.Toleration{
-	// 				Key:      parsedEnvVarKeyValuePair[0],
-	// 				Operator: corev1.TolerationOpEqual,
-	// 				Value:    parsedEnvVarKeyValuePair[1],
-	// 			}
-	// 			log.Infoln("Adding toleration to deployment:", t)
-	// 			checkDeploymentTolerations = append(checkDeploymentTolerations, t)
-	// 			continue
-	// 		}
-	// 		t := corev1.Toleration{
-	// 			Key:      parsedEnvVarKeyValuePair[0],
-	// 			Operator: corev1.TolerationOpEqual,
-	// 			Value:    parsedEnvVarValueEffect[0],
-	// 			Effect:   corev1.TaintEffect(parsedEnvVarValueEffect[1]),
-	// 		}
-	// 		log.Infoln("Adding toleration to deployment:", t)
-	// 		checkDeploymentTolerations = append(checkDeploymentTolerations, t)
-	// 	}
-	// 	log.Infoln("Parsed TOLERATIONS:", checkDeploymentTolerations)
-	// }
-
 	// Parse incoming deployment node selectors
 	if len(checkNodeSelectorsEnv) > 0 {
 		// splitEnvVars := strings.Split(checkNodeSelectorsEnv, ",")
@@ -140,37 +100,33 @@ func parseInputValues() {
 		// log.Infoln("Parsed NODE_SELECTOR:", checkDeploymentNodeSelectors)
 	}
 
-	// Parse incoming node selectors
-	// if len(checkNodeSelectorsEnv) > 0 {
-	// 	splitEnvVars := strings.Split(checkNodeSelectorsEnv, ",")
-	// 	for _, splitEnvVarKeyValuePair := range splitEnvVars {
+	// Parse check worker interlude
+	workerInterlude = defaultWorkerInterlude
+	if len(workerInterludeEnv) != 0 {
+		interlude, err := strconv.ParseInt(workerInterludeEnv, 10, 64)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_WORKER_INTERLUDE")
+		}
+		if interlude < 0 {
+			interlude = 0
+		}
+		workerInterlude = interlude
+		log.Infoln("Parsed CHECK_WORKER_INTERLUDE:", workerInterlude)
+	}
 
-	// 		// Split each comma-separated input based on `=`
-	// 		parsedEnvVarKeyValuePair := strings.Split(splitEnvVarKeyValuePair, "=")
-	// 		if len(parsedEnvVarKeyValuePair) != 2 {
-	// 			log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
-	// 		}
-
-	// 		if len(parsedEnvVarKeyValuePair) == 2 {
-	// 			if _, ok := checkNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
-	// 				checkNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
-	// 			}
-	// 		}
-
-	// 		// Split each comma-separated input based on `:`
-	// 		parsedEnvVarKeyValuePair = strings.Split(splitEnvVarKeyValuePair, ":")
-	// 		if len(parsedEnvVarKeyValuePair) != 2 {
-	// 			log.Warnln("Unable to parse key value pair:", splitEnvVarKeyValuePair)
-	// 		}
-
-	// 		if len(parsedEnvVarKeyValuePair) == 2 {
-	// 			if _, ok := checkNodeSelectors[parsedEnvVarKeyValuePair[0]]; !ok {
-	// 				checkNodeSelectors[parsedEnvVarKeyValuePair[0]] = parsedEnvVarKeyValuePair[1]
-	// 			}
-	// 		}
-	// 	}
-	// 	log.Infoln("Parsed NODE_SELECTOR:", checkNodeSelectors)
-	// }
+	// Parse check pod TTL
+	podTTLSeconds = defaultPodTTLSeconds
+	if len(podTTLSecondsEnv) > 0 {
+		duration, err := time.ParseDuration(podTTLSecondsEnv)
+		if err != nil {
+			log.Fatalln("error occurred attempting to parse CHECK_TTL_SECONDS:", err)
+		}
+		if duration.Seconds() < defaultPodTTLSeconds.Seconds() {
+			log.Fatalln("error occurred attempting to parse CHECK_TTL_SECONDS.  A value less than", defaultPodTTLSeconds.Seconds(), "was parsed:", duration.Seconds())
+		}
+		podTTLSeconds = duration
+		log.Infoln("Parsed CHECK_TTL_SECONDS:", podTTLSeconds)
+	}
 
 	// Parse incoming check pod resource requests and limits
 	// Calculated in decimal SI units (15 = 15m cpu).

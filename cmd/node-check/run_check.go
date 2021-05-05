@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -22,16 +23,15 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 )
 
 // Check result represents the result of applying a pod to a node and its cleanup process.
 type CheckInfo struct {
-	Errors   []error
-	OK       bool
-	Node     *v1.Node
-	NodeName string
-	Pod      *v1.Pod
-	PodName  string
+	Errors []error
+	Node   *v1.Node
+	Pod    *v1.Pod
 }
 
 // runNodeCheck applies a pod specification to each targeted node in the cluster.
@@ -49,13 +49,39 @@ func runNodeCheck(ctx context.Context) {
 	// Init a timeout for this entire check run.
 	runTimeout := time.After(checkTimeLimit)
 
+	runErrs := make([]error, 0)
+
+	// // Clean up pods from previous runs.
+	// select {
+	// case err := <-cleanUp(ctx):
+	// 	if err != nil {
+	// 		// Report and exit if cleaning up fails
+	// 		log.Errorln("failed to clean up pods from runs that do not belong to this check iteration:", err)
+	// 		reportErrorsToKuberhealthy(err)
+	// 		return
+	// 	}
+	// case <-ctx.Done():
+	// 	// If there is a cancellation interrupt signal.
+	// 	log.Infoln("Canceling node target listing and shutting down from interrupt.")
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+	// 	return
+	// case <-runTimeout:
+	// 	// If creating a deployment took too long, exit.
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+	// 	return
+	// }
+
 	// List targeted / qualifying nodes for this check.
 	var nodeList NodeListResult
 	select {
 	case nodeList = <-listTargetedNodes(ctx):
 		// Report node listing errors.
 		if nodeList.Err != nil {
-			log.Errorln("error when listing targeted or qualifying nodes:", nodeList.Err)
+			err := errors.New("failed to list targeted or qualifying nodes: " + nodeList.Err.Error())
+			runErrs = append(runErrs, err)
+			log.Errorln(err)
 			reportOKToKuberhealthy()
 			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
 			return
@@ -65,6 +91,13 @@ func runNodeCheck(ctx context.Context) {
 			log.Infoln("There were no qualifying target nodes found within the cluster.")
 			reportOKToKuberhealthy()
 			return
+		}
+		// Debugging output
+		log.Debugln("Number of targetable nodes:", len(nodeList.NodeList), "List of nodes:")
+		if debug {
+			for _, n := range nodeList.NodeList {
+				log.Debugln(n.Name)
+			}
 		}
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
@@ -86,10 +119,19 @@ func runNodeCheck(ctx context.Context) {
 	case unschedulableNodeList = <-listUnschedulableNodes(ctx):
 		// Report node listing errors.
 		if unschedulableNodeList.Err != nil {
-			log.Errorln("error when listing unschedulable nodes:", unschedulableNodeList.Err)
+			err := errors.New("failed to list unschedulable nodes: " + nodeList.Err.Error())
+			runErrs = append(runErrs, err)
+			log.Errorln(err)
 			reportOKToKuberhealthy()
 			// reportErrorsToKuberhealthy([]string{unschedulableNodeList.Err.Error()})
 			return
+		}
+		// Debugging output
+		log.Debugln("Number of unschedulable nodes:", len(nodeList.NodeList), "List of nodes:")
+		if debug {
+			for _, n := range unschedulableNodeList.NodeList {
+				log.Debugln(n.Name)
+			}
 		}
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
@@ -103,69 +145,55 @@ func runNodeCheck(ctx context.Context) {
 		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
-	log.Infoln("Found", len(unschedulableNodeList.NodeList), "unschedulable nodes.")
+	log.Infoln("Found", len(unschedulableNodeList.NodeList), "unschedulable node(s).")
 
+	// PROBLEM:
 	// Trim the unschedaluable nodes from the list of targeted nodes.
-	targetedNodes := removeUnscheduableNodes(&nodeList.NodeList, &unschedulableNodeList.NodeList)
-	log.Infoln("There are now", len(targetedNodes), "targets after removing unschedulable candidates.")
+	targetedNodes := removeUnscheduableNodesv2(&nodeList.NodeList, &unschedulableNodeList.NodeList)
+	log.Infoln("Removed", len(nodeList.NodeList)-len(targetedNodes), "node(s) from the list of targets.")
+	log.Infoln("Number of targets after removing unschedulable candidates:", len(targetedNodes))
 
-	// Create pod specs for each targeted node.
-	podSpecs := createPodSpecs(targetedNodes)
-	if len(podSpecs) == 0 {
-		// If there are no pod specifications to run for this check -- there is no work to do.
-		// This could be both an error and a success case depending on the situation. . .
-		log.Warnln("Produced an empty list of pod specifications for the check. Please check your inputs.")
-		reportOKToKuberhealthy()
-		// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
-		return
-	}
-	log.Infoln("Created", len(podSpecs), "pod specifications for nodes.")
+	// // DEBUG ONLY
+	// if debug {
+	// 	log.Debugln("Targeted nodes:")
+	// 	for _, n := range targetedNodes {
+	// 		log.Debugln(n.Name, n.GetName())
+	// 	}
+	// }
 
-	// Warn users that there is a discrepancy between the number of targeted nodes and the number
-	// of created pod specs.
-	if len(podSpecs) != len(targetedNodes) {
-		log.Warnln("The number of created pod specifications and targeted nodes do not match. Targeted nodes:", len(targetedNodes), "Pods to create:", len(podSpecs))
-	}
+	// log.Infoln("Removed", len(nodeList.NodeList)-len(*targetedNodes), "node(s) from the list of targets.")
+	// log.Infoln("Number of targets after removing unschedulable candidates:", len(*targetedNodes))
 
-	// Make a list of test that are going to be run for this check.
-	var checkTests []CheckInfo
-	select {
-	case err := <-populateCheckTests(&checkTests, targetedNodes, podSpecs):
-		if err != nil {
-			log.Errorln("failed to populate tests for this check:", err)
-			reportOKToKuberhealthy()
-			// reportErrorsToKuberhealthy([]string{err.Error()})
-			return
-		}
-	case <-ctx.Done():
-		// If there is a cancellation interrupt signal.
-		log.Infoln("Canceling node target listing and shutting down from interrupt.")
-		reportOKToKuberhealthy()
-		// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
-		return
-	case <-runTimeout:
-		// If creating a deployment took too long, exit.
-		reportOKToKuberhealthy()
-		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
-		return
-	}
+	// // DEBUG ONLY
+	// if debug {
+	// 	log.Debugln("Targeted nodes:")
+	// 	for _, n := range *targetedNodes {
+	// 		log.Debugln(n.Name, n.GetName())
+	// 	}
+	// }
 
+	// Execute node check here and move create pod spec to worker
 	// Deploy each pod spec to the cluster.
-	var checkResults []CheckInfo
+	var checkResults []*CheckInfo
 	select {
-	case checkResults = <-executeNodeCheck(ctx, &checkTests):
+	// case checkResults = <-executeNodeCheckv2(ctx, targetedNodes):
+	case checkResults = <-executeNodeCheckv3(ctx, &targetedNodes):
 		// Report node listing errors.
-		if nodeList.Err != nil {
-			log.Errorln("error when listing targeted or qualifying nodes:", nodeList.Err)
+		// if len(checkResults) != len(*targetedNodes) {
+		if len(checkResults) != len(targetedNodes) {
+			err := fmt.Errorf("failed to produce the proper amount of check results: [expected]: %d [received]: %d", len(targetedNodes), len(checkResults))
+			runErrs = append(runErrs, err)
+			log.Errorln(err)
 			reportOKToKuberhealthy()
 			// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
 			return
 		}
-		// Exit the check if the slice of resulting nodes is empty.
-		if len(nodeList.NodeList) == 0 {
-			log.Infoln("There were no qualifying target nodes found within the cluster.")
-			reportOKToKuberhealthy()
-			return
+		// Debugging output
+		if debug {
+			log.Debugln("Number of worker results:", len(checkResults), "List of nodes with results:")
+			for _, r := range checkResults {
+				log.Debugln(r.Node.GetName())
+			}
 		}
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
@@ -179,11 +207,93 @@ func runNodeCheck(ctx context.Context) {
 		// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
 		return
 	}
+	log.Infoln("Check completed.")
 
+	// podSpecs := createPodSpecs(*targetedNodes)
+	// if len(podSpecs) == 0 {
+	// 	// If there are no pod specifications to run for this check -- there is no work to do.
+	// 	// This could be both an error and a success case depending on the situation. . .
+	// 	log.Warnln("Produced an empty list of pod specifications for the check. Please check your inputs.\n\tCheck that your selected nodes are not Unschedulable.")
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+	// 	return
+	// }
+	// log.Infoln("Created", len(podSpecs), "pod specification(s).")
+
+	// // Warn users that there is a discrepancy between the number of targeted nodes and the number
+	// // of created pod specs.
+	// if len(podSpecs) != len(*targetedNodes) {
+	// 	log.Warnln("The number of created pod specifications and targeted nodes do not match. Node(s):", len(*targetedNodes), "Pod(s):", len(podSpecs))
+	// }
+
+	// // Make a list of test that are going to be run for this check.
+	// var checkTests []*CheckInfo
+	// select {
+	// case tests := <-populateCheckTests(*targetedNodes, podSpecs):
+	// 	if len(tests) != len(*targetedNodes) {
+	// 		log.Errorln("failed to populate the appropriate amount of tests for this check [expected]:", len(*targetedNodes), "[populated]:", len(checkTests))
+	// 		reportOKToKuberhealthy()
+	// 		// reportErrorsToKuberhealthy([]string{err.Error()})
+	// 		return
+	// 	}
+	// 	checkTests = tests
+	// case <-ctx.Done():
+	// 	// If there is a cancellation interrupt signal.
+	// 	log.Infoln("Canceling node target listing and shutting down from interrupt.")
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+	// 	return
+	// case <-runTimeout:
+	// 	// If creating a deployment took too long, exit.
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+	// 	return
+	// }
+
+	// // Still the breaking point in the check
+	// log.Infoln("Created", len(checkTests), "tests for workers.")
+	// if debug {
+	// 	for _, c := range checkTests {
+	// 		log.Debugln("Pod", c.Pod.Name, "maps to", c.Pod.Spec.NodeName)
+	// 	}
+	// }
+
+	// // Deploy each pod spec to the cluster.
+	// var checkResults []*CheckInfo
+	// select {
+	// case checkResults = <-executeNodeCheck(ctx, &checkTests):
+	// 	// Report node listing errors.
+	// 	if nodeList.Err != nil {
+	// 		log.Errorln("error when listing targeted or qualifying nodes:", nodeList.Err)
+	// 		reportOKToKuberhealthy()
+	// 		// reportErrorsToKuberhealthy([]string{nodeListResult.Err.Error()})
+	// 		return
+	// 	}
+	// 	// Exit the check if the slice of resulting nodes is empty.
+	// 	if len(nodeList.NodeList) == 0 {
+	// 		log.Infoln("There were no qualifying target nodes found within the cluster.")
+	// 		reportOKToKuberhealthy()
+	// 		return
+	// 	}
+	// case <-ctx.Done():
+	// 	// If there is a cancellation interrupt signal.
+	// 	log.Infoln("Canceling node target listing and shutting down from interrupt.")
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to perform pre-check cleanup within timeout"})
+	// 	return
+	// case <-runTimeout:
+	// 	// If creating a deployment took too long, exit.
+	// 	reportOKToKuberhealthy()
+	// 	// reportErrorsToKuberhealthy([]string{"failed to create deployment within timeout"})
+	// 	return
+	// }
+	// log.Infoln("Check completed.")
+
+	log.Infoln("Creating report from the results.")
 	// Create a report for kuberhealthy.
 	var report []string
 	select {
-	case report = <-createKuberhealthyReport(&checkResults):
+	case report = <-createKuberhealthyReportv2(&checkResults, runErrs):
 	case <-ctx.Done():
 		// If there is a cancellation interrupt signal.
 		log.Infoln("Canceling node target listing and shutting down from interrupt.")
@@ -205,62 +315,30 @@ func runNodeCheck(ctx context.Context) {
 	reportOKToKuberhealthy()
 }
 
-// cleanUp cleans up the deployment check and all resource manifests created that relate to
-// the check.
-// TODO - add in context that expires when check times out
-// func cleanUp(ctx context.Context) error {
-
-// 	log.Infoln("Cleaning up deployment and service.")
-// 	var err error
-// 	var resultErr error
-// 	errorMessage := ""
-
-// 	// Delete the service.
-// 	// TODO - add select to catch context timeout expiration
-// 	err = deleteServiceAndWait(ctx)
-// 	if err != nil {
-// 		log.Errorln("error cleaning up service:", err)
-// 		errorMessage = errorMessage + "error cleaning up service:" + err.Error()
-// 	}
-
-// 	// Delete the deployment.
-// 	// TODO - add select to catch context timeout expiration
-// 	err = deleteDeploymentAndWait(ctx)
-// 	if err != nil {
-// 		log.Errorln("error cleaning up deployment:", err)
-// 		if len(errorMessage) != 0 {
-// 			errorMessage = errorMessage + " | "
-// 		}
-// 		errorMessage = errorMessage + "error cleaning up deployment:" + err.Error()
-// 	}
-
-// 	log.Infoln("Finished clean up process.")
-
-// 	// Create an error if errors occurred during the clean up process.
-// 	if len(errorMessage) != 0 {
-// 		resultErr = fmt.Errorf("%s", errorMessage)
-// 	}
-
-// 	return resultErr
-// }
-
 // populateCheckTests fills a slice of CheckResults with test information
 // before the check (no results yet).
-func populateCheckTests(checks *[]CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) chan interface{} {
-	completeChan := make(chan interface{})
+func populateCheckTests(nodes []*v1.Node, podSpecs []*v1.Pod) chan []*CheckInfo {
+	completeChan := make(chan []*CheckInfo)
+	checkProcessingChan := make(chan *CheckInfo)
+
+	checks := make([]*CheckInfo, 0)
+
+	go readCheckCreations(checkProcessingChan, &checks)
 
 	go func() {
 		defer close(completeChan)
 
-		// Apply pod specifications one at a time.
+		// Create pod specifications one at a time.
 		for _, podSpec := range podSpecs {
+
+			log.Debugln("Creating check for", podSpec.Name, "on node", podSpec.Spec.NodeName)
 
 			// Treat each pod specification as it's own check / test.
 			// Add pod information
 			check := CheckInfo{
-				Errors:  make([]error, 0),
-				Pod:     &podSpec,
-				PodName: podSpec.GetName(),
+				Errors: make([]error, 0),
+				Pod:    podSpec,
+				// PodName: podSpec.GetName(),
 			}
 
 			// Find the node that the pod is assigned to be scheduled on
@@ -269,13 +347,43 @@ func populateCheckTests(checks *[]CheckInfo, nodes []v1.Node, podSpecs []v1.Pod)
 				err := fmt.Errorf("unable to find targeted node for pod %s", podSpec.Name)
 				check.Errors = append(check.Errors, err)
 			}
-			check.Node = node
-			check.NodeName = node.GetName()
 
-			*checks = append(*checks, check)
+			check.Node = node
+			// check.NodeName = node.GetName()
+
+			// checks = append(checks, &check)
+
+			// log.Debugln(podSpec.Name)
+			// log.Debugln(node.Name)
+			// log.Debugln(check.Pod.Name, check.PodName, check.Pod.Spec.NodeName, check.Node.Name, check.NodeName)
+
+			log.Debugln("Sending check creation for", check.Pod.Name, "on node", check.Node.Name, "to processing channel.")
+			checkProcessingChan <- &check
+			// time.Sleep(time.Millisecond)
+			// log.Debugln(checks)
 		}
 
-		completeChan <- struct{}{}
+		close(checkProcessingChan)
+
+		// if debug {
+		// 	for _, c := range checks {
+		// 		log.Debugln("Pod.Name:", c.Pod.Name)
+		// 		log.Debugln("Pod.GetName():", c.Pod.GetName())
+		// 		log.Debugln("Pod.Spec.NodeName:", c.Pod.Spec.NodeName)
+		// 		log.Debugln("Pod.Spec.NodeSelector:", c.Pod.Spec.NodeSelector)
+		// 		log.Debugln("Node.Name:", c.Node.Name)
+		// 		log.Debugln("Node.Name:", c.Node.GetName())
+		// 		log.Debugln("Node.Labels:", c.Node.Labels)
+		// 	}
+		// }
+
+		if debug {
+			for _, c := range checks {
+				log.Debugln("Pod", c.Pod.Name, "maps to", c.Node.Name)
+			}
+		}
+
+		completeChan <- checks
 
 		return
 	}()
@@ -284,20 +392,20 @@ func populateCheckTests(checks *[]CheckInfo, nodes []v1.Node, podSpecs []v1.Pod)
 }
 
 // executeNodeCheck executes the deployment of pod specifications to nodes.
-func executeNodeCheck(ctx context.Context, checks *[]CheckInfo) chan []CheckInfo {
-
-	// Make a slice for the overall check results.
-	results := make([]CheckInfo, 0)
+func executeNodeCheck(ctx context.Context, checks *[]*CheckInfo) chan []*CheckInfo {
 
 	// Make a channel for overall check results.
-	checkResults := make(chan []CheckInfo)
+	checkResults := make(chan []*CheckInfo)
 
 	// Make a channel to read check results from while running the check.
-	checkResultProcessingChan := make(chan CheckInfo)
+	checkResultReadingChan := make(chan []*CheckInfo)
+	checkResultProcessingChan := make(chan *CheckInfo)
 
 	go func() {
 		defer close(checkResults)
 		defer close(checkResultProcessingChan)
+
+		go readCheckResults(checkResultReadingChan, checkResultProcessingChan)
 
 		// Perform the check concurrently
 		wg := sync.WaitGroup{}
@@ -307,12 +415,9 @@ func executeNodeCheck(ctx context.Context, checks *[]CheckInfo) chan []CheckInfo
 			go w.PerformCheck(ctx, checkResultProcessingChan, &wg)
 		}
 
-		for result := range checkResultProcessingChan {
-			results = append(results, result)
-		}
-
 		wg.Wait()
 
+		results := <-checkResultReadingChan
 		checkResults <- results
 
 		return
@@ -321,81 +426,110 @@ func executeNodeCheck(ctx context.Context, checks *[]CheckInfo) chan []CheckInfo
 	return checkResults
 }
 
-// checkNodesConcurrently executes the deployment of pod specifications to nodes concurrently.
-func checkNodesConcurrently(ctx context.Context, resultChan chan []CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) {
-	results := make([]CheckInfo, 0)
-	wg := sync.WaitGroup{}
+// executeNodeCheckv2
+func executeNodeCheckv2(ctx context.Context, nodes *[]*v1.Node) chan []*CheckInfo {
 
-	for _, _ = range nodes {
-		wg.Add(1)
-		// go
-	}
+	// Make a channel to read check results from while running the check.
+	checkResultReadingChan := make(chan []*CheckInfo)
+	checkResultProcessingChan := make(chan *CheckInfo)
 
-	resultChan <- results
+	checkResults := make(chan []*CheckInfo)
+
+	go func() {
+		defer close(checkResults)
+		// defer close(checkResultProcessingChan)
+		// defer close(checkResults)
+		// results := make([]*CheckInfo, 0)
+
+		// Start reading check results.
+		go readCheckResults(checkResultReadingChan, checkResultProcessingChan)
+
+		// Perform the check concurrently
+		wg := sync.WaitGroup{}
+		for _, node := range *nodes {
+			// Add a worker for the check.
+			w := NewWorkerv2(node)
+			wg.Add(1)
+			go w.PerformCheckv2(ctx, checkResultProcessingChan, &wg)
+		}
+
+		// Wait for workers to finish.
+		wg.Wait()
+
+		// Close the processing channel when workers are done.
+		close(checkResultProcessingChan)
+
+		// Read the results and send it back to the check result channel.
+		results := <-checkResultReadingChan
+		checkResults <- results
+	}()
+
+	return checkResults
 }
 
-// checkNodes executes the deployment of pod specifications linearly. (One at a time)
-func checkNodes(ctx context.Context, resultChan chan []CheckInfo, nodes []v1.Node, podSpecs []v1.Pod) {
-	results := make([]CheckInfo, 0)
+// executeNodeCheckv3
+func executeNodeCheckv3(ctx context.Context, nodes *[]v1.Node) chan []*CheckInfo {
 
-	// Apply pod specifications one at a time.
-	for _, podSpec := range podSpecs {
+	log.Debugln("Executing node checks.")
 
-		// Treat each pod specification as it's own check / test.
-		// Add pod information
-		checkResult := CheckInfo{
-			Errors:  make([]error, 0),
-			Pod:     &podSpec,
-			PodName: podSpec.GetName(),
+	// Make a channel to read check results from while running the check.
+	checkResultReadingChan := make(chan []*CheckInfo)
+	checkResultProcessingChan := make(chan *CheckInfo)
+
+	checkResults := make(chan []*CheckInfo)
+
+	go func() {
+		defer close(checkResults)
+		// defer close(checkResultProcessingChan)
+		// defer close(checkResults)
+		// results := make([]*CheckInfo, 0)
+
+		// Start reading check results.
+		go readCheckResults(checkResultReadingChan, checkResultProcessingChan)
+
+		// Perform the check concurrently
+		wg := sync.WaitGroup{}
+		log.Debugln("Amount of workers to make for nodes:", len(*nodes))
+		for _, node := range *nodes {
+			log.Debugln("About to initialize worker for node", node.Name)
+			// Add a worker for the check.
+			w := NewWorkerv2(&node)
+			wg.Add(1)
+			log.Debugln("Starting worker for ", w.Check.Node.GetName())
+			go w.PerformCheckv2(ctx, checkResultProcessingChan, &wg)
+
+			// Sleep here to prevent workers from DOSing.
+			log.Debugln("Sleeping for", defaultWorkerInterlude, "before spawning next worker.")
+			time.Sleep(time.Second * time.Duration(defaultWorkerInterlude))
+			// time.Sleep(time.Second * time.Duration(workerInterlude))
 		}
 
-		// Find the node that the pod is assigned to be scheduled on
-		node := findNodeInSlice(nodes, podSpec.Spec.NodeName)
-		if node == nil {
-			err := fmt.Errorf("unable to find targeted node for pod %s", podSpec.Name)
-			checkResult.Errors = append(checkResult.Errors, err)
-		}
-		checkResult.Node = node
-		checkResult.NodeName = node.GetName()
+		// Wait for workers to finish.
+		wg.Wait()
+		log.Infoln("Done waiting for workers to complete.")
 
-		// Deploy the pod to the node
-		pod, err := deployPodToNode(ctx, &podSpec, node)
-		if err != nil {
-			log.Errorln("failed to deploy pod", (*pod).Name, "to", node.Name)
-			checkResult.Errors = append(checkResult.Errors, err)
-		}
-		checkResult.Pod = pod
+		// Close the processing channel when workers are done.
+		close(checkResultProcessingChan)
 
-		// Watch the pod and make sure it comes up.
-		err = watchPodOnNode(ctx, checkResult.Pod, checkResult.Node)
-		if err != nil {
-			log.Errorln("failed to watch pod", checkResult.PodName, "come online on node", checkResult.NodeName)
-			checkResult.Errors = append(checkResult.Errors, err)
-		}
+		// Read the results and send it back to the check result channel.
+		results := <-checkResultReadingChan
+		log.Debugln("Sending check results.")
+		checkResults <- results
+	}()
 
-		// Delete the pod from the node
-		err = deletePodFromNode(ctx, checkResult.Pod, checkResult.Node)
-		if err != nil {
-			log.Errorln("failed to delete pod", checkResult.PodName, "from node", checkResult.NodeName)
-			checkResult.Errors = append(checkResult.Errors, err)
-		}
-
-		results = append(results, checkResult)
-	}
-
-	resultChan <- results
+	return checkResults
 }
 
-// watchPod watches for a pod to reach `Running` state on a node.
-func watchPod(ctx context.Context, pod *v1.Pod) error {
+// watchPodRunning watches for a pod to reach `Running` state on a node.
+func watchPodRunning(ctx context.Context, pod *v1.Pod) error {
 
 	// Watch that the pod comes online
 	watch, err := client.CoreV1().Pods(checkNamespace).Watch(ctx, metav1.ListOptions{
 		Watch:         true,
-		FieldSelector: "metadata.name=" + (*pod).Name,
+		FieldSelector: "metadata.name=" + pod.Name,
 	})
 	if err != nil {
-		log.Warnln("Failed to create a watch client on pod", (*pod).Name+":", err)
+		log.Warnln("Failed to create a watch client on pod", pod.Name+":", err)
 		return err
 	}
 
@@ -403,17 +537,67 @@ func watchPod(ctx context.Context, pod *v1.Pod) error {
 
 	for event := range watch.ResultChan() {
 		kind := event.Object.DeepCopyObject().GetObjectKind().GroupVersionKind()
-		if kind.Kind != "Pod" {
-			log.Infoln("Got a watch event for a non-pod object.")
-			log.Debugln(kind)
+		if kind.Kind != pod.TypeMeta.Kind {
 			continue
 		}
 
 		p, ok := event.Object.(*v1.Pod)
 		if !ok {
-			log.Infoln("Got a watch event for a non-pod object.")
+			log.Debugln("Got a watch event for a non-pod object:", p)
 			continue
 		}
+
+		if p.GetName() != pod.GetName() {
+			continue
+		}
+
+		log.Debugln("Recieved event for pod:", p.Name)
+
+		for _, condition := range p.Status.Conditions {
+			if condition.Type == v1.PodReady && condition.Status == v1.ConditionTrue && p.Status.Phase == v1.PodRunning {
+				log.Debugln("Pod", p.GetName(), "is in phase", p.Status.Phase, "with condition", condition.Type, condition.Status)
+				return nil
+			}
+		}
+
+		// if p.Status.Phase == v1.PodRunning && p.Status.Conditions == v1.PodReady {
+
+		// 	log.Debugln("Pod", p.GetName(), "is in phase", p.Status.Phase)
+		// 	return nil
+		// }
+	}
+
+	return nil
+}
+
+// watchPodRunningv2 watches for a pod to reach `Running` state on a node.
+func watchPodRunningv2(ctx context.Context, pod *v1.Pod) error {
+
+	// Watch that the pod comes online
+	watch, err := client.CoreV1().Pods(checkNamespace).Watch(ctx, metav1.ListOptions{
+		Watch:         true,
+		FieldSelector: "metadata.name=" + pod.Name,
+	})
+	if err != nil {
+		log.Warnln("Failed to create a watch client on pod", pod.Name+":", err)
+		return err
+	}
+
+	defer watch.Stop()
+
+	for event := range watch.ResultChan() {
+		kind := event.Object.DeepCopyObject().GetObjectKind().GroupVersionKind()
+		if kind.Kind != pod.TypeMeta.Kind {
+			continue
+		}
+
+		p, ok := event.Object.(*v1.Pod)
+		if !ok {
+			log.Debugln("Got a watch event for a non-pod object:", p)
+			continue
+		}
+
+		log.Debugln("Recieved event for pod:", p.Name)
 
 		if p.Status.Phase == v1.PodRunning {
 			return nil
@@ -423,70 +607,100 @@ func watchPod(ctx context.Context, pod *v1.Pod) error {
 	return nil
 }
 
+// watchPodDeleted watches for a pod to reach `Running` state on a node.
+func watchPodDeleted(ctx context.Context, pod *v1.Pod) error {
+
+	deleted := make(chan struct{})
+	defer close(deleted)
+
+	// Watch for a deleted even on the pod
+	podInformer := informers.NewSharedInformerFactory(client, time.Second*5).Core().V1().Pods().Informer()
+	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		DeleteFunc: func(obj interface{}) {
+			// log.Debugln("Pod deleted:", obj)
+			// log.Debugln("Found delete while watching pod.")
+			p, ok := obj.(*v1.Pod)
+			if !ok {
+				log.Debugln("Found a deletion for a non-pod object")
+			}
+			if p.GetName() == pod.Name {
+				log.Debugln("Pod deleted:", obj)
+				return
+			}
+		},
+	})
+
+	podInformer.Run(deleted)
+
+	select {
+	case _ = <-deleted:
+		log.Infoln("Pod", pod.Name, "deleted.")
+
+	case <-ctx.Done():
+		// If there is a cancellation interrupt signal.
+		return errors.New("Canceling pod " + pod.Name + " delete watch.")
+	}
+	return nil
+}
+
 // deletePodFromNode removes a pod from a node.
 func deletePodFromNode(ctx context.Context, pod *v1.Pod, node *v1.Node) error {
 	err := client.CoreV1().Pods(checkNamespace).Delete(ctx, (*pod).Name, metav1.DeleteOptions{})
 	if err != nil {
 		log.Debugln("failed to delete pod", (*pod).Name, "on node", (*node).Name+":", err.Error())
+		return err
 	}
-	return err
+	err = watchPodDeleted(ctx, pod)
+	if err != nil {
+		log.Debugln("failed to watch deletion of pod", (*pod).Name, "on node", (*node).Name+":", err.Error())
+		return err
+	}
+	return nil
 }
 
 // deployPodToNode deploys a given pod to a given node.
 func deployPodToNode(ctx context.Context, pod *v1.Pod, node *v1.Node) (*v1.Pod, error) {
+	log.Debugln("DEPLOY POD TO NODE Pod:", pod.Name, "Node:", node.Name)
 	p, err := client.CoreV1().Pods(checkNamespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
-		log.Debugln("failed to create pod", (*pod).Name, "on node", (*node).Name+":", err.Error())
+		log.Debugln("failed to create pod", pod.Name, "on node", node.Name+":", err.Error())
 		return nil, err
 	}
 	return p, nil
 }
 
-// cleanUpOrphanedResources cleans up previous deployment and services and ensures
-// a clean slate before beginning a deployment and service check.
-func cleanUpOrphanedResources(ctx context.Context) chan error {
+// deployPodToNodev2 deploys a given pod to a given node.
+func deployPodToNodev2(ctx context.Context, pod *v1.Pod) (*v1.Pod, error) {
+	log.Debugln("DEPLOY POD TO NODE Pod:", pod.Name, "Node:", pod.Spec.NodeName)
+	p, err := client.CoreV1().Pods(checkNamespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		log.Debugln("failed to create pod", pod.Name, "on node", pod.Spec.NodeName+":", err.Error())
+		return nil, err
+	}
+	return p, nil
+}
 
-	cleanUpChan := make(chan error)
+// readCheckResults reads a channel of incoming check results and adds them to the
+// list of overall results.
+func readCheckResults(allResults chan []*CheckInfo, individualResult chan *CheckInfo) {
+	results := make([]*CheckInfo, 0)
+	for r := range individualResult {
+		results = append(results, r)
+	}
+	allResults <- results
+}
 
-	go func() {
-		log.Infoln("Wiping all found orphaned resources belonging to this check.")
-
-		defer close(cleanUpChan)
-
-		// Look for existing pods based on time-stamp.
-		// This should ignore all other targeting variables such as
-		// tolerations, labels, selectors, tains, and such
-		// as a change in these variables should not result in a faulty
-		// cleanup -- unless this check is run in multiple namespaces???
-
-		// svcExists, err := findPreviousService(ctx)
-		// if err != nil {
-		// 	log.Warnln("Failed to find previous service:", err.Error())
-		// }
-		// if svcExists {
-		// 	log.Infoln("Found previous service.")
-		// }
-
-		// deploymentExists, err := findPreviousDeployment(ctx)
-		// if err != nil {
-		// 	log.Warnln("Failed to find previous deployment:", err.Error())
-		// }
-		// if deploymentExists {
-		// 	log.Infoln("Found previous deployment.")
-		// }
-
-		// if svcExists || deploymentExists {
-		// 	cleanUpChan <- cleanUp(ctx)
-		// } else {
-		// 	cleanUpChan <- nil
-		// }
-	}()
-
-	return cleanUpChan
+// readCheckCreations reads a channel of created check tests and adds them to the
+// list of overall tests.
+func readCheckCreations(createdCheckChan chan *CheckInfo, createdChecks *[]*CheckInfo) {
+	for check := range createdCheckChan {
+		log.Debugln("Reading check creation for", check.Pod.Name, "on node", check.Node.Name, "from result channel.")
+		*createdChecks = append(*createdChecks, check)
+	}
 }
 
 // createKuberhealthyReport creates and returns a report of errors from this check.
-func createKuberhealthyReport(results *[]CheckInfo) chan []string {
+func createKuberhealthyReport(results *[]*CheckInfo) chan []string {
 	reportChan := make(chan []string)
 
 	go func() {
@@ -500,6 +714,35 @@ func createKuberhealthyReport(results *[]CheckInfo) chan []string {
 					report = append(report, err.Error())
 				}
 			}
+		}
+
+		reportChan <- report
+
+		return
+	}()
+
+	return reportChan
+}
+
+// createKuberhealthyReportv2 creates and returns a report of errors from this check.
+func createKuberhealthyReportv2(results *[]*CheckInfo, runErrs []error) chan []string {
+	reportChan := make(chan []string)
+
+	go func() {
+		defer close(reportChan)
+
+		report := make([]string, 0)
+
+		for _, result := range *results {
+			if len(result.Errors) != 0 {
+				for _, err := range result.Errors {
+					report = append(report, err.Error())
+				}
+			}
+		}
+
+		for _, err := range runErrs {
+			report = append(report, err.Error())
 		}
 
 		reportChan <- report
