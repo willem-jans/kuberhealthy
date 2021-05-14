@@ -34,7 +34,11 @@ spec:
           # Set INSECURE to "false" for CA issued certificates. If "false", a TLS handshake will be performed during the expiry check.
           - name: INSECURE
             value: "false"
+<<<<<<< HEAD
         image: kuberhealthy/ssl-expiry-check:v3.2.0
+=======
+        image: kuberhealthy/ssl-expiry-check:v3.1.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:
@@ -68,7 +72,11 @@ spec:
           # Set INSECURE to "true" for self-signed certificates. If "true", the TLS handshake will be skipped. This only checks expiration status, NOT validity/security.
           - name: INSECURE
             value: "true"
+<<<<<<< HEAD
         image: kuberhealthy/ssl-expiry-check:v3.2.0
+=======
+        image: kuberhealthy/ssl-expiry-check:v3.1.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:
@@ -90,8 +98,16 @@ or
 
 
 #### You can also use the default values by running:
+<<<<<<< HEAD
 `kubectl apply -f https://raw.githubusercontent.com/kuberhealthy/kuberhealthy/v2.3.0/cmd/ssl-expiry-check/ssl-ca-expiry-check.yaml`
 or
 `kubectl apply -f https://raw.githubusercontent.com/kuberhealthy/kuberhealthy/v2.3.0/cmd/ssl-expiry-check/ssl-selfsign-expiry-check.yaml`
 
  Make sure you are using the latest release of Kuberhealthy 2.4.1 or later.
+=======
+`kubectl apply -f https://raw.githubusercontent.com/Comcast/kuberhealthy/v2.3.0/cmd/ssl-expiry-check/ssl-ca-expiry-check.yaml`
+or
+`kubectl apply -f https://raw.githubusercontent.com/Comcast/kuberhealthy/v2.3.0/cmd/ssl-expiry-check/ssl-selfsign-expiry-check.yaml`
+
+ Make sure you are using the latest release of Kuberhealthy 2.3.0.
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34

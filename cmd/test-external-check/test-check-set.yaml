@@ -15,7 +15,11 @@ spec:
             value: "false"
           - name: REPORT_DELAY
             value: "5s"
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:
@@ -42,7 +46,11 @@ spec:
             value: "false"
           - name: REPORT_DELAY
             value: "5s"
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:
@@ -69,7 +77,11 @@ spec:
             value: "5s"
           - name: REPORT_FAILURE
             value: "false"
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:
@@ -135,7 +147,11 @@ spec:
   extraLabels:
     testLabel: testLabel
   podSpec:
+<<<<<<< HEAD
     image: kuberhealthy/test-external-check:v1.4.0
+=======
+    image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     imagePullPolicy: Always
     name: main
     resources:
@@ -162,7 +178,11 @@ spec:
             value: "5s"
           - name: REPORT_FAILURE
             value: "true"
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:
@@ -189,7 +209,11 @@ spec:
             value: "5s"
           - name: REPORT_FAILURE
             value: "false"
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:

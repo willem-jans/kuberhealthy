@@ -114,7 +114,11 @@ check:
     image:
       registry: kuberhealthy
       repository: daemonset-check
+<<<<<<< HEAD
       tag: v3.3.0
+=======
+      tag: v3.2.6
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     extraEnvs:
     nodeSelector: {}
     tolerations:
@@ -133,7 +137,11 @@ check:
     image:
       registry: kuberhealthy
       repository: deployment-check
+<<<<<<< HEAD
       tag: v1.9.0
+=======
+      tag: v1.8.2
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     extraEnvs:
       CHECK_DEPLOYMENT_REPLICAS: "4"
       CHECK_DEPLOYMENT_ROLLING_UPDATE: "true"
@@ -157,7 +165,11 @@ check:
     image:
       registry: kuberhealthy
       repository: dns-resolution-check
+<<<<<<< HEAD
       tag: v1.5.0
+=======
+      tag: v1.4.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     extraEnvs:
       HOSTNAME: "kubernetes.default"
     nodeSelector: {}
@@ -177,7 +189,11 @@ check:
     image:
       registry: kuberhealthy
       repository: dns-resolution-check
+<<<<<<< HEAD
       tag: v1.5.0
+=======
+      tag: v1.4.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     extraEnvs:
       HOSTNAME: "google.com"
     nodeSelector: {}
@@ -197,7 +213,11 @@ check:
     image:
       registry: kuberhealthy
       repository: pod-restarts-check
+<<<<<<< HEAD
       tag: v2.5.0
+=======
+      tag: v2.4.1
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     allNamespaces: false
     extraEnvs:
       MAX_FAILURES_ALLOWED: "10"
@@ -218,7 +238,11 @@ check:
     image:
       registry: kuberhealthy
       repository: pod-status-check
+<<<<<<< HEAD
       tag: v1.3.0
+=======
+      tag: v1.2.6
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     allNamespaces: false
     extraEnvs:
     nodeSelector: {}
@@ -265,7 +289,11 @@ check:
     image:
       registry: kuberhealthy
       repository: network-connection-check
+<<<<<<< HEAD
       tag: v0.2.0
+=======
+      tag: v0.1.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
     extraEnvs:
       CONNECTION_TARGET: "tcp://github.com:443"
     nodeSelector: {}

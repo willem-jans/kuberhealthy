@@ -36,7 +36,11 @@ spec:
           # For internal, self-signed certs, set to "true" and the handshake check will attempt to automatically retrieve the host certificate
           - name: SELF_SIGNED
             value: "true"
+<<<<<<< HEAD
         image: kuberhealthy/ssl-handshake-check:v3.2.0
+=======
+        image: kuberhealthy/ssl-handshake-check:v3.1.12
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:
@@ -67,7 +71,11 @@ spec:
           # For internal, self-signed certificates, set to "true" and copy and paste the .pem formatted certificate in the config map below
           - name: SELF_SIGNED
             value: "true"
+<<<<<<< HEAD
         image: kuberhealthy/ssl-handshake-check:v3.2.0
+=======
+        image: kuberhealthy/ssl-handshake-check:v3.1.12
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         volumeMounts:
@@ -121,7 +129,11 @@ To implement the SSL Handshake Check with Kuberhealthy, update the spec sheet to
 
 You can use the default values as well by running:
 
+<<<<<<< HEAD
 `kubectl apply -f https://raw.githubusercontent.com/kuberhealthy/kuberhealthy/v2.3.0/cmd/ssl-handshake-check/ssl-handshake-check.yaml`
+=======
+`kubectl apply -f https://raw.githubusercontent.com/Comcast/kuberhealthy/v2.3.0/cmd/ssl-handshake-check/ssl-handshake-check.yaml`
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
 
 To use the `ssl-file-handshake-check.yaml` spec sheet, you must first update the certificate configmap.
 

@@ -36,7 +36,11 @@ spec:
       - env:
           - name: CONNECTION_TARGET
             value: "tcp://github.com:443"
+<<<<<<< HEAD
         image: kuberhealthy/network-connection-check:v0.2.0
+=======
+        image: kuberhealthy/network-connection-check:v0.1.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         name: kuberhealthy-github-reachable
 ```
 

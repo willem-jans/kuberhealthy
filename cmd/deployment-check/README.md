@@ -71,8 +71,13 @@ spec:
   timeout: 15m
   podSpec:
     containers:
+<<<<<<< HEAD
       - name: deploym9.0
         image: kuberhealthy/deployment-check:v1.9.0
+=======
+      - name: deployment
+        image: kuberhealthy/deployment-check:v1.8.2
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         env:
           - name: CHECK_IMAGE
             value: "nginx:1.17-perl"
@@ -107,7 +112,11 @@ spec:
   podSpec:
     containers:
       - name: deployment
+<<<<<<< HEAD
         image: kuberhealthy/deployment-check:v1.9.0
+=======
+        image: kuberhealthy/deployment-check:v1.8.2
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         env:
           - name: CHECK_DEPLOYMENT_REPLICAS
             value: "6"

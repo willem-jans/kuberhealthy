@@ -33,7 +33,11 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+<<<<<<< HEAD
         image: kuberhealthy/dns-resolution-check:v1.5.0
+=======
+        image: kuberhealthy/dns-resolution-check:v1.4.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:
@@ -70,7 +74,11 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+<<<<<<< HEAD
         image: kuberhealthy/dns-resolution-check:v1.5.0
+=======
+        image: kuberhealthy/dns-resolution-check:v1.4.4
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:

@@ -17,7 +17,11 @@ spec:
           #  value: "kubernetes.io/hostname=test"
           #- name: NODE_SELECTOR
           #  value: "kubernetes.io/hostname=test"
+<<<<<<< HEAD
         image: kuberhealthy/daemonset-check:v3.3.0
+=======
+        image: kuberhealthy/daemonset-check:v3.2.6
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:

@@ -24,7 +24,11 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+<<<<<<< HEAD
         image: kuberhealthy/pod-status-check:v1.3.0
+=======
+        image: kuberhealthy/pod-status-check:v1.2.6
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         name: main
         resources:

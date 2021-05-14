@@ -13,7 +13,11 @@ spec:
           - name: REPORT_DELAY
             value: "1s"
         # test-external-check image must be uploaded to the repository you wish to test on, and below URL must be updated to match.
+<<<<<<< HEAD
         image: kuberhealthy/test-external-check:v1.4.0
+=======
+        image: kuberhealthy/test-external-check:v1.3.3
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: Always
         name: main
         resources:

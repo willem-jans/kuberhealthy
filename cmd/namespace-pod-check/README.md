@@ -19,7 +19,11 @@ spec:
   podSpec:
     containers:
       - name: namespace-pod-check
+<<<<<<< HEAD
         image: kuberhealthy/namespace-pod-check:v1.1.0
+=======
+        image: kuberhealthy/namespace-pod-check:v1.0.2
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent
         resources:
           requests:

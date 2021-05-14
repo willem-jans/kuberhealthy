@@ -17,7 +17,11 @@ spec:
   timeout: 2m # After this much time, Kuberhealthy will kill your check and consider it "failed"
   podSpec: # The exact pod spec that will run.  All normal pod spec is valid here.
     containers:
+<<<<<<< HEAD
       - image: kuberhealthy/http-content-check:v1.5.0 # The image of the check you just pushed
+=======
+      - image: kuberhealthy/http-content-check:v1.4.3 # The image of the check you just pushed
+>>>>>>> 5e7fbe7eebfd06d6330cfd4c599a29acaad66b34
         imagePullPolicy: IfNotPresent # uses local image if present
         name: main
         env:
